@@ -1,0 +1,25 @@
+{
+  "name": "bigdata-table-demo",
+  "version": "1.0.0",
+  "description": "BS架构大数据量表格，支持千万行级别数据展示和全局筛选 - Python + Vue版本",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc && vite build",
+    "preview": "vite preview",
+    "server": "cd backend && python main.py"
+  },
+  "dependencies": {
+    "vue": "^3.3.8",
+    "vue-router": "^4.2.5",
+    "element-plus": "^2.4.4",
+    "@element-plus/icons-vue": "^2.3.1",
+    "axios": "^1.6.0",
+    "pinia": "^2.1.7"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^4.5.0",
+    "typescript": "^5.2.0",
+    "vue-tsc": "^1.8.22",
+    "vite": "^5.0.0"
+  }
+}

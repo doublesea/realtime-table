@@ -1,0 +1,581 @@
+from fastapi import FastAPI, Query, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import Optional, List
+from datetime import datetime, timedelta
+import random
+import asyncio
+import pandas as pd
+import numpy as np
+
+app = FastAPI(title="大数据量表格API")
+
+# 配置CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://localhost:5174"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 全局DataFrame存储数据
+data_df: pd.DataFrame = None
+TOTAL_RECORDS = 100000  # 10万条数据
+
+# 数据模型
+class TableData(BaseModel):
+    id: int
+    name: str
+    email: str
+    age: int
+    department: str
+    salary: int
+    status: str
+    createTime: str
+
+class NumberFilter(BaseModel):
+    operator: Optional[str] = None  # '=', '>', '<', '>=', '<='
+    value: Optional[int] = None
+
+class FilterGroup(BaseModel):
+    filters: List[NumberFilter]
+    logic: Optional[str] = 'AND'  # 'AND' 或 'OR'
+
+class FilterParams(BaseModel):
+    id: Optional[NumberFilter] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    department: Optional[str] = None
+    status: Optional[str] = None
+    age: Optional[NumberFilter | FilterGroup] = None
+    ageMin: Optional[int] = None  # 向后兼容
+    ageMax: Optional[int] = None  # 向后兼容
+    salary: Optional[NumberFilter | FilterGroup] = None
+    salaryMin: Optional[int] = None  # 向后兼容
+    salaryMax: Optional[int] = None  # 向后兼容
+    createTime: Optional[str] = None
+
+class ListRequest(BaseModel):
+    page: int = 1
+    pageSize: int = 100
+    filters: Optional[FilterParams] = None
+
+class ListResponse(BaseModel):
+    list: List[TableData]
+    total: int
+    page: int
+    pageSize: int
+
+# 初始化数据（生成10万条数据并保存到DataFrame）
+def init_data():
+    """初始化数据，生成10万条数据并保存到DataFrame"""
+    global data_df
+    
+    print(f"开始生成 {TOTAL_RECORDS} 条数据...")
+    departments = ['技术部', '销售部', '市场部', '人事部', '财务部']
+    statuses = ['在职', '离职', '试用期']
+    
+    data_list = []
+    for i in range(TOTAL_RECORDS):
+        id = i + 1
+        name = f"用户_{str(id).zfill(8)}"
+        email = f"user{id}@example.com"
+        
+        # 使用ID作为随机种子，确保相同ID生成相同的数据
+        rng = random.Random(id)
+        age = rng.randint(18, 68)
+        department = rng.choice(departments)
+        salary = rng.randint(10000, 60000)
+        status = rng.choice(statuses)
+        create_time = (datetime.now() - timedelta(days=rng.randint(0, 365))).strftime('%Y-%m-%d')
+        
+        data_list.append({
+            'id': id,
+            'name': name,
+            'email': email,
+            'age': age,
+            'department': department,
+            'salary': salary,
+            'status': status,
+            'createTime': create_time
+        })
+    
+    data_df = pd.DataFrame(data_list)
+    print(f"数据生成完成，共 {len(data_df)} 条记录")
+    print(f"数据预览:\n{data_df.head()}")
+    
+    return data_df
+
+# 应用启动时初始化数据
+@app.on_event("startup")
+async def startup_event():
+    """应用启动时初始化数据"""
+    # 在后台线程中初始化数据，避免阻塞
+    import threading
+    threading.Thread(target=init_data, daemon=True).start()
+    # 等待数据初始化完成
+    import time
+    while data_df is None:
+        time.sleep(0.1)
+
+# 将筛选条件转换为pandas查询条件
+def build_pandas_filter(df: pd.DataFrame, filters: Optional[FilterParams] = None) -> pd.Series:
+    """将筛选条件转换为pandas布尔索引"""
+    if not filters:
+        return pd.Series([True] * len(df))
+    
+    # 初始化筛选掩码
+    mask = pd.Series([True] * len(df))
+    
+    # ID筛选
+    if filters.id:
+        if isinstance(filters.id, FilterGroup):
+            id_filters_mask = []
+            for id_filter in filters.id.filters:
+                if id_filter.operator and id_filter.value is not None:
+                    if id_filter.operator == '=':
+                        id_filters_mask.append(df['id'] == id_filter.value)
+                    elif id_filter.operator == '>':
+                        id_filters_mask.append(df['id'] > id_filter.value)
+                    elif id_filter.operator == '<':
+                        id_filters_mask.append(df['id'] < id_filter.value)
+                    elif id_filter.operator == '>=':
+                        id_filters_mask.append(df['id'] >= id_filter.value)
+                    elif id_filter.operator == '<=':
+                        id_filters_mask.append(df['id'] <= id_filter.value)
+            
+            if id_filters_mask:
+                if filters.id.logic == 'AND':
+                    # AND逻辑：所有条件都满足
+                    id_mask = id_filters_mask[0]
+                    for m in id_filters_mask[1:]:
+                        id_mask &= m
+                    mask &= id_mask
+                else:  # OR
+                    # OR逻辑：至少一个条件满足
+                    id_mask = id_filters_mask[0]
+                    for m in id_filters_mask[1:]:
+                        id_mask |= m
+                    mask &= id_mask
+        else:
+            if filters.id.operator and filters.id.value is not None:
+                if filters.id.operator == '=':
+                    mask &= (df['id'] == filters.id.value)
+                elif filters.id.operator == '>':
+                    mask &= (df['id'] > filters.id.value)
+                elif filters.id.operator == '<':
+                    mask &= (df['id'] < filters.id.value)
+                elif filters.id.operator == '>=':
+                    mask &= (df['id'] >= filters.id.value)
+                elif filters.id.operator == '<=':
+                    mask &= (df['id'] <= filters.id.value)
+    
+    # 文本筛选
+    if filters.name:
+        mask &= df['name'].str.contains(filters.name, case=False, na=False)
+    if filters.email:
+        mask &= df['email'].str.contains(filters.email, case=False, na=False)
+    if filters.department:
+        mask &= (df['department'] == filters.department)
+    if filters.status:
+        mask &= (df['status'] == filters.status)
+    
+    # 年龄筛选
+    if filters.age:
+        if isinstance(filters.age, FilterGroup):
+            age_filters_mask = []
+            for age_filter in filters.age.filters:
+                if age_filter.operator and age_filter.value is not None:
+                    if age_filter.operator == '=':
+                        age_filters_mask.append(df['age'] == age_filter.value)
+                    elif age_filter.operator == '>':
+                        age_filters_mask.append(df['age'] > age_filter.value)
+                    elif age_filter.operator == '<':
+                        age_filters_mask.append(df['age'] < age_filter.value)
+                    elif age_filter.operator == '>=':
+                        age_filters_mask.append(df['age'] >= age_filter.value)
+                    elif age_filter.operator == '<=':
+                        age_filters_mask.append(df['age'] <= age_filter.value)
+            
+            if age_filters_mask:
+                if filters.age.logic == 'AND':
+                    # AND逻辑：所有条件都满足
+                    age_mask = age_filters_mask[0]
+                    for m in age_filters_mask[1:]:
+                        age_mask &= m
+                    mask &= age_mask
+                else:  # OR
+                    # OR逻辑：至少一个条件满足
+                    age_mask = age_filters_mask[0]
+                    for m in age_filters_mask[1:]:
+                        age_mask |= m
+                    mask &= age_mask
+        else:
+            if filters.age.operator and filters.age.value is not None:
+                if filters.age.operator == '=':
+                    mask &= (df['age'] == filters.age.value)
+                elif filters.age.operator == '>':
+                    mask &= (df['age'] > filters.age.value)
+                elif filters.age.operator == '<':
+                    mask &= (df['age'] < filters.age.value)
+                elif filters.age.operator == '>=':
+                    mask &= (df['age'] >= filters.age.value)
+                elif filters.age.operator == '<=':
+                    mask &= (df['age'] <= filters.age.value)
+    elif filters.ageMin is not None:
+        mask &= (df['age'] >= filters.ageMin)
+    elif filters.ageMax is not None:
+        mask &= (df['age'] <= filters.ageMax)
+    
+    # 薪资筛选
+    if filters.salary:
+        if isinstance(filters.salary, FilterGroup):
+            salary_filters_mask = []
+            for salary_filter in filters.salary.filters:
+                if salary_filter.operator and salary_filter.value is not None:
+                    if salary_filter.operator == '=':
+                        salary_filters_mask.append(df['salary'] == salary_filter.value)
+                    elif salary_filter.operator == '>':
+                        salary_filters_mask.append(df['salary'] > salary_filter.value)
+                    elif salary_filter.operator == '<':
+                        salary_filters_mask.append(df['salary'] < salary_filter.value)
+                    elif salary_filter.operator == '>=':
+                        salary_filters_mask.append(df['salary'] >= salary_filter.value)
+                    elif salary_filter.operator == '<=':
+                        salary_filters_mask.append(df['salary'] <= salary_filter.value)
+            
+            if salary_filters_mask:
+                if filters.salary.logic == 'AND':
+                    # AND逻辑：所有条件都满足
+                    salary_mask = salary_filters_mask[0]
+                    for m in salary_filters_mask[1:]:
+                        salary_mask &= m
+                    mask &= salary_mask
+                else:  # OR
+                    # OR逻辑：至少一个条件满足
+                    salary_mask = salary_filters_mask[0]
+                    for m in salary_filters_mask[1:]:
+                        salary_mask |= m
+                    mask &= salary_mask
+        else:
+            if filters.salary.operator and filters.salary.value is not None:
+                if filters.salary.operator == '=':
+                    mask &= (df['salary'] == filters.salary.value)
+                elif filters.salary.operator == '>':
+                    mask &= (df['salary'] > filters.salary.value)
+                elif filters.salary.operator == '<':
+                    mask &= (df['salary'] < filters.salary.value)
+                elif filters.salary.operator == '>=':
+                    mask &= (df['salary'] >= filters.salary.value)
+                elif filters.salary.operator == '<=':
+                    mask &= (df['salary'] <= filters.salary.value)
+    elif filters.salaryMin is not None:
+        mask &= (df['salary'] >= filters.salaryMin)
+    elif filters.salaryMax is not None:
+        mask &= (df['salary'] <= filters.salaryMax)
+    
+    # 日期筛选
+    if filters.createTime:
+        mask &= (df['createTime'] == filters.createTime)
+    
+    return mask
+
+# 检查数据是否符合筛选条件（保留用于兼容）
+def matches_filter(id: int, name: str, email: str, age: int, department: str, 
+                   salary: int, status: str, create_time: str, 
+                   filters: Optional[FilterParams] = None) -> bool:
+    """检查数据是否符合筛选条件"""
+    if not filters:
+        return True
+    
+    # ID筛选（支持操作符）
+    if filters.id:
+        if isinstance(filters.id, FilterGroup):
+            # 多个条件组合
+            id_results = []
+            for id_filter in filters.id.filters:
+                if id_filter.operator and id_filter.value is not None:
+                    result = False
+                    if id_filter.operator == '=':
+                        result = (id == id_filter.value)
+                    elif id_filter.operator == '>':
+                        result = (id > id_filter.value)
+                    elif id_filter.operator == '<':
+                        result = (id < id_filter.value)
+                    elif id_filter.operator == '>=':
+                        result = (id >= id_filter.value)
+                    elif id_filter.operator == '<=':
+                        result = (id <= id_filter.value)
+                    id_results.append(result)
+            if filters.id.logic == 'OR':
+                if not (any(id_results) if id_results else True):
+                    return False
+            else:  # AND
+                if not (all(id_results) if id_results else True):
+                    return False
+        else:
+            id_match = False
+            if filters.id.operator == '=' and filters.id.value is not None:
+                id_match = (id == filters.id.value)
+            elif filters.id.operator == '>' and filters.id.value is not None:
+                id_match = (id > filters.id.value)
+            elif filters.id.operator == '<' and filters.id.value is not None:
+                id_match = (id < filters.id.value)
+            elif filters.id.operator == '>=' and filters.id.value is not None:
+                id_match = (id >= filters.id.value)
+            elif filters.id.operator == '<=' and filters.id.value is not None:
+                id_match = (id <= filters.id.value)
+            if not id_match:
+                return False
+    
+    # 文本筛选
+    if filters.name and filters.name.lower() not in name.lower():
+        return False
+    if filters.email and filters.email.lower() not in email.lower():
+        return False
+    if filters.department and department != filters.department:
+        return False
+    if filters.status and status != filters.status:
+        return False
+    
+    # 年龄筛选（支持操作符和多个条件组合，支持AND/OR逻辑）
+    if filters.age:
+        if isinstance(filters.age, FilterGroup):
+            age_results = []
+            for age_filter in filters.age.filters:
+                if age_filter.operator and age_filter.value is not None:
+                    result = False
+                    if age_filter.operator == '=':
+                        result = (age == age_filter.value)
+                    elif age_filter.operator == '>':
+                        result = (age > age_filter.value)
+                    elif age_filter.operator == '<':
+                        result = (age < age_filter.value)
+                    elif age_filter.operator == '>=':
+                        result = (age >= age_filter.value)
+                    elif age_filter.operator == '<=':
+                        result = (age <= age_filter.value)
+                    age_results.append(result)
+            if filters.age.logic == 'OR':
+                if not (any(age_results) if age_results else True):
+                    return False
+            else:  # AND
+                if not (all(age_results) if age_results else True):
+                    return False
+        else:
+            age_match = False
+            if filters.age.operator == '=' and filters.age.value is not None:
+                age_match = (age == filters.age.value)
+            elif filters.age.operator == '>' and filters.age.value is not None:
+                age_match = (age > filters.age.value)
+            elif filters.age.operator == '<' and filters.age.value is not None:
+                age_match = (age < filters.age.value)
+            elif filters.age.operator == '>=' and filters.age.value is not None:
+                age_match = (age >= filters.age.value)
+            elif filters.age.operator == '<=' and filters.age.value is not None:
+                age_match = (age <= filters.age.value)
+            if not age_match:
+                return False
+    # 向后兼容：范围筛选
+    elif filters.ageMin is not None and age < filters.ageMin:
+        return False
+    elif filters.ageMax is not None and age > filters.ageMax:
+        return False
+    
+    # 薪资筛选（支持操作符和多个条件组合，支持AND/OR逻辑）
+    if filters.salary:
+        if isinstance(filters.salary, FilterGroup):
+            salary_results = []
+            for salary_filter in filters.salary.filters:
+                if salary_filter.operator and salary_filter.value is not None:
+                    result = False
+                    if salary_filter.operator == '=':
+                        result = (salary == salary_filter.value)
+                    elif salary_filter.operator == '>':
+                        result = (salary > salary_filter.value)
+                    elif salary_filter.operator == '<':
+                        result = (salary < salary_filter.value)
+                    elif salary_filter.operator == '>=':
+                        result = (salary >= salary_filter.value)
+                    elif salary_filter.operator == '<=':
+                        result = (salary <= salary_filter.value)
+                    salary_results.append(result)
+            if filters.salary.logic == 'OR':
+                if not (any(salary_results) if salary_results else True):
+                    return False
+            else:  # AND
+                if not (all(salary_results) if salary_results else True):
+                    return False
+        else:
+            salary_match = False
+            if filters.salary.operator == '=' and filters.salary.value is not None:
+                salary_match = (salary == filters.salary.value)
+            elif filters.salary.operator == '>' and filters.salary.value is not None:
+                salary_match = (salary > filters.salary.value)
+            elif filters.salary.operator == '<' and filters.salary.value is not None:
+                salary_match = (salary < filters.salary.value)
+            elif filters.salary.operator == '>=' and filters.salary.value is not None:
+                salary_match = (salary >= filters.salary.value)
+            elif filters.salary.operator == '<=' and filters.salary.value is not None:
+                salary_match = (salary <= filters.salary.value)
+            if not salary_match:
+                return False
+    # 向后兼容：范围筛选
+    elif filters.salaryMin is not None and salary < filters.salaryMin:
+        return False
+    elif filters.salaryMax is not None and salary > filters.salaryMax:
+        return False
+    
+    # 日期筛选
+    if filters.createTime and create_time != filters.createTime:
+        return False
+    
+    return True
+
+# 使用pandas进行筛选和分页
+def get_filtered_data(filters: Optional[FilterParams] = None, 
+                     page: int = 1, 
+                     page_size: int = 100):
+    """使用pandas筛选数据并返回分页结果
+    
+    Returns:
+        (filtered_df, total_count): 筛选后的DataFrame和总记录数
+    """
+    global data_df
+    
+    if data_df is None:
+        raise ValueError("数据未初始化，请重启服务")
+    
+    # 构建筛选条件
+    mask = build_pandas_filter(data_df, filters)
+    filtered_df = data_df[mask].copy()
+    
+    # 计算总数
+    total_count = len(filtered_df)
+    
+    # 分页
+    start_index = (page - 1) * page_size
+    end_index = start_index + page_size
+    paginated_df = filtered_df.iloc[start_index:end_index]
+    
+    return paginated_df, total_count
+
+
+@app.get("/")
+async def root():
+    return {"message": "大数据量表格API服务运行中"}
+
+@app.post("/api/data/list")
+async def get_data_list(request: ListRequest):
+    """获取数据列表（支持分页和筛选）"""
+    try:
+        global data_df
+        
+        if data_df is None:
+            raise HTTPException(status_code=500, detail="数据未初始化，请重启服务")
+        
+        # 打印筛选条件详情
+        if request.filters:
+            print(f"接收到筛选条件: {request.filters}")
+        
+        # 使用pandas进行筛选和分页
+        paginated_df, total = get_filtered_data(
+            filters=request.filters,
+            page=request.page,
+            page_size=request.pageSize
+        )
+        
+        print(f"筛选后的总数: {total}, 当前页数据量: {len(paginated_df)}")
+        
+        # 将DataFrame转换为字典列表
+        data_list = paginated_df.to_dict('records')
+        
+        result = {
+            "success": True,
+            "data": {
+                "list": data_list,
+                "total": total,
+                "page": request.page,
+                "pageSize": request.pageSize
+            }
+        }
+        
+        return result
+    except Exception as e:
+        import traceback
+        print(f"错误: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/data/row-position")
+async def get_row_position(request: dict):
+    """获取选中行在筛选结果中的位置"""
+    try:
+        global data_df
+        
+        if data_df is None:
+            raise HTTPException(status_code=500, detail="数据未初始化")
+        
+        row_id = request.get('rowId')
+        filters = request.get('filters')
+        
+        if row_id is None:
+            raise HTTPException(status_code=400, detail="缺少rowId参数")
+        
+        # 构建筛选条件
+        filter_params = None
+        if filters:
+            try:
+                filter_params = FilterParams(**filters)
+            except:
+                pass
+        
+        mask = build_pandas_filter(data_df, filter_params)
+        filtered_df = data_df[mask].copy()
+        
+        # 查找选中行的位置
+        matching_rows = filtered_df[filtered_df['id'] == row_id]
+        if not matching_rows.empty:
+            # 获取在筛选结果中的位置（从0开始）
+            # filtered_df保留了原始索引，我们需要重置索引以便正确计算位置
+            filtered_df_reset = filtered_df.reset_index(drop=True)
+            matching_rows_reset = filtered_df_reset[filtered_df_reset['id'] == row_id]
+            if not matching_rows_reset.empty:
+                position = matching_rows_reset.index[0]
+                return {
+                    "success": True,
+                    "data": {
+                        "found": True,
+                        "position": int(position)
+                    }
+                }
+        
+        return {
+            "success": True,
+            "data": {
+                "found": False,
+                "position": -1
+            }
+        }
+    except Exception as e:
+        import traceback
+        print(f"错误: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/data/filters")
+async def get_filters():
+    """获取筛选选项"""
+    return {
+        "success": True,
+        "data": {
+            "departments": ['技术部', '销售部', '市场部', '人事部', '财务部'],
+            "statuses": ['在职', '离职', '试用期']
+        }
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=3001)
+
