@@ -1,8 +1,36 @@
 <template>
   <el-card class="table-card" :body-style="{ padding: '16px' }">
-    <!-- 重置筛选按钮 -->
-    <div style="margin-bottom: 12px; text-align: right;">
-      <el-button :icon="Refresh" size="small" @click="handleReset">重置所有筛选</el-button>
+    <!-- 工具栏 -->
+    <div style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <el-dropdown trigger="click" @command="() => {}">
+          <el-button :icon="Setting" size="small">
+            列设置
+            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item
+                v-for="col in columnConfig"
+                :key="col.prop"
+                :divided="col.prop === 'id'"
+                @click.stop
+              >
+                <el-checkbox
+                  v-model="columnVisible[col.prop]"
+                  @change="() => handleColumnToggle(col.prop)"
+                  @click.stop
+                >
+                  {{ col.label }}
+                </el-checkbox>
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
+      <div>
+        <el-button :icon="Refresh" size="small" @click="handleReset">重置所有筛选</el-button>
+      </div>
     </div>
 
     <!-- 数据表格 -->
@@ -13,7 +41,7 @@
       stripe
       border
       height="calc(100vh - 250px)"
-      style="width: 100%"
+      style="width: 100%; table-layout: auto"
       @sort-change="handleSortChange"
       @row-click="handleRowClick"
       highlight-current-row
@@ -67,7 +95,7 @@
           <span style="font-size: 14px; font-weight: 600;">+</span>
         </template>
       </el-table-column>
-      <el-table-column prop="id" label="ID" width="140" fixed="left" sortable="custom">
+      <el-table-column v-if="columnVisible.id" prop="id" label="ID" min-width="120" fixed="left" sortable="custom">
         <template #header>
           <div class="column-header">
             <span>ID</span>
@@ -99,7 +127,7 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column prop="name" label="姓名" width="150" sortable="custom">
+      <el-table-column v-if="columnVisible.name" prop="name" label="姓名" min-width="120" sortable="custom">
         <template #header>
           <div class="column-header">
             <span>姓名</span>
@@ -118,7 +146,7 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column prop="email" label="邮箱" width="200">
+      <el-table-column v-if="columnVisible.email" prop="email" label="邮箱" min-width="180">
         <template #header>
           <div class="column-header">
             <span>邮箱</span>
@@ -133,7 +161,7 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column prop="age" label="年龄" width="220" sortable="custom">
+      <el-table-column v-if="columnVisible.age" prop="age" label="年龄" min-width="200" sortable="custom">
         <template #header>
           <div class="column-header">
             <span>年龄</span>
@@ -199,7 +227,7 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column prop="department" label="部门" width="140">
+      <el-table-column v-if="columnVisible.department" prop="department" label="部门" min-width="120">
         <template #header>
           <div class="column-header">
             <span>部门</span>
@@ -224,7 +252,7 @@
           <el-tag>{{ scope.row.department }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="salary" label="薪资" width="220" sortable="custom">
+      <el-table-column v-if="columnVisible.salary" prop="salary" label="薪资" min-width="200" sortable="custom">
         <template #header>
           <div class="column-header">
             <span>薪资</span>
@@ -292,7 +320,7 @@
           ¥{{ scope.row.salary.toLocaleString() }}
         </template>
       </el-table-column>
-      <el-table-column prop="status" label="状态" width="140">
+      <el-table-column v-if="columnVisible.status" prop="status" label="状态" min-width="120">
         <template #header>
           <div class="column-header">
             <span>状态</span>
@@ -322,7 +350,7 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="createTime" label="创建时间" width="140" sortable="custom">
+      <el-table-column v-if="columnVisible.createTime" prop="createTime" label="创建时间" min-width="120" sortable="custom">
         <template #header>
           <div class="column-header">
             <span>创建时间</span>
@@ -356,7 +384,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Search, Refresh, Delete } from '@element-plus/icons-vue'
+import { Search, Refresh, Delete, Setting, ArrowDown } from '@element-plus/icons-vue'
 import { TableData, FilterParams, NumberFilter } from '../types'
 import { dataApi } from '../api/data'
 import type { ElTable } from 'element-plus'
@@ -369,6 +397,30 @@ const tableRef = ref<InstanceType<typeof ElTable>>() // 表格引用
 const filterOptions = reactive({
   departments: [] as string[],
   statuses: [] as string[]
+})
+
+// 列配置
+const columnConfig = [
+  { prop: 'id', label: 'ID' },
+  { prop: 'name', label: '姓名' },
+  { prop: 'email', label: '邮箱' },
+  { prop: 'age', label: '年龄' },
+  { prop: 'department', label: '部门' },
+  { prop: 'salary', label: '薪资' },
+  { prop: 'status', label: '状态' },
+  { prop: 'createTime', label: '创建时间' }
+]
+
+// 列显示状态（默认全部显示）
+const columnVisible = reactive<Record<string, boolean>>({
+  id: true,
+  name: true,
+  email: true,
+  age: true,
+  department: true,
+  salary: true,
+  status: true,
+  createTime: true
 })
 
 const filterForm = reactive({
@@ -699,6 +751,27 @@ const handleSortChange = ({ column, prop, order }: any) => {
   console.log('排序:', prop, order)
 }
 
+// 处理列显示/隐藏切换
+const handleColumnToggle = (prop: string) => {
+  // 如果当前是隐藏操作，检查是否只剩一列
+  if (!columnVisible[prop]) {
+    // 计算可见列数（不包括当前要隐藏的列）
+    const visibleCount = Object.entries(columnVisible)
+      .filter(([key, value]) => key !== prop && value)
+      .length
+    
+    // 如果隐藏后没有可见列了，阻止隐藏
+    if (visibleCount === 0) {
+      ElMessage.warning('至少需要显示一列')
+      // 恢复显示状态
+      columnVisible[prop] = true
+      return
+    }
+  }
+  // 列显示状态已在 checkbox 的 v-model 中更新
+  console.log(`列 ${prop} ${columnVisible[prop] ? '显示' : '隐藏'}`)
+}
+
 // 获取状态类型
 const getStatusType = (status: string) => {
   const typeMap: Record<string, 'success' | 'danger' | 'warning'> = {
@@ -720,8 +793,11 @@ onMounted(() => {
 .table-card {
   margin: 16px;
   height: calc(100vh - 32px);
+  width: calc(100% - 32px);
+  max-width: 100%;
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
 }
 
 :deep(.el-card__body) {
@@ -810,6 +886,26 @@ onMounted(() => {
 
 :deep(.el-table__expand-icon--expanded) {
   transform: rotate(45deg);
+}
+
+/* 列设置下拉菜单样式 */
+:deep(.el-dropdown-menu__item) {
+  padding: 8px 20px;
+  cursor: default;
+}
+
+:deep(.el-dropdown-menu__item:hover) {
+  background-color: transparent;
+}
+
+:deep(.el-dropdown-menu__item .el-checkbox) {
+  width: 100%;
+  cursor: pointer;
+}
+
+:deep(.el-dropdown-menu__item .el-checkbox__label) {
+  cursor: pointer;
+  padding-left: 8px;
 }
 </style>
 
