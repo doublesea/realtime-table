@@ -9,12 +9,22 @@ export default defineConfig({
       '@': resolve(__dirname, 'src')
     }
   },
+  base: '/static/', // 静态资源基础路径，用于 NiceGUI 嵌入
   server: {
     port: 3000,
     proxy: {
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true
+      }
+    }
+  },
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+    rollupOptions: {
+      output: {
+        manualChunks: undefined
       }
     }
   }

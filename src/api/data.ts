@@ -1,8 +1,21 @@
 import axios from 'axios'
 import { TableData, FilterParams, PaginationParams, ApiResponse, ListResponse, FilterOptions, RowPositionResponse } from '../types'
 
+// 动态获取 API base URL
+// 如果是在 NiceGUI 中嵌入，使用相对路径
+// 如果是在开发环境，使用 /api
+const getApiBaseURL = () => {
+  // 检查是否在 NiceGUI 环境中（通过 window.location 判断）
+  if (window.location.pathname.includes('/data-table') || window.location.pathname.includes('/static/')) {
+    // NiceGUI 环境，使用后端 API 路径
+    return '/api'
+  }
+  // 开发环境
+  return '/api'
+}
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: getApiBaseURL(),
   timeout: 30000,
 })
 
