@@ -80,7 +80,7 @@ def main_page():
         with ui.card().classes('w-full max-w-2xl mt-8'):
             ui.label('功能特性').classes('text-h6 mb-4')
             with ui.column().classes('gap-2'):
-                ui.label('✓ 支持10万条数据预生成和展示')
+                ui.label('✓ 支持1000万条数据预生成和展示')
                 ui.label('✓ 服务端分页，每页可调整（50/100/200/500）')
                 ui.label('✓ 全局筛选功能（文本、数字、下拉、日期）')
                 ui.label('✓ 支持多条件组合筛选（AND/OR逻辑）')

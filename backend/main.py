@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Optional, List
+from pydantic import BaseModel, field_validator
+from typing import Optional, List, Union
 from datetime import datetime, timedelta
 import random
 import asyncio
@@ -21,7 +21,7 @@ app.add_middleware(
 
 # 全局DataFrame存储数据
 data_df: pd.DataFrame = None
-TOTAL_RECORDS = 100000  # 10万条数据
+TOTAL_RECORDS = 100000
 
 # 数据模型
 class TableData(BaseModel):
@@ -43,18 +43,35 @@ class FilterGroup(BaseModel):
     logic: Optional[str] = 'AND'  # 'AND' 或 'OR'
 
 class FilterParams(BaseModel):
-    id: Optional[NumberFilter] = None
+    id: Optional[Union[NumberFilter, FilterGroup]] = None
     name: Optional[str] = None
     email: Optional[str] = None
     department: Optional[str] = None
     status: Optional[str] = None
-    age: Optional[NumberFilter | FilterGroup] = None
+    age: Optional[Union[NumberFilter, FilterGroup]] = None
     ageMin: Optional[int] = None  # 向后兼容
     ageMax: Optional[int] = None  # 向后兼容
-    salary: Optional[NumberFilter | FilterGroup] = None
+    salary: Optional[Union[NumberFilter, FilterGroup]] = None
     salaryMin: Optional[int] = None  # 向后兼容
     salaryMax: Optional[int] = None  # 向后兼容
     createTime: Optional[str] = None
+    
+    # Pydantic v2 的模型验证器，用于正确解析 Union 类型
+    @field_validator('age', 'salary', 'id', mode='before')
+    @classmethod
+    def parse_union_type(cls, v):
+        """解析 Union[NumberFilter, FilterGroup] 类型"""
+        if v is None:
+            return None
+        if isinstance(v, dict):
+            # 如果有 filters 键，说明是 FilterGroup
+            if 'filters' in v:
+                return FilterGroup(**v)
+            # 如果有 operator 或 value，说明是 NumberFilter
+            elif 'operator' in v or 'value' in v:
+                return NumberFilter(**v)
+        # 如果已经是实例，直接返回
+        return v
 
 class ListRequest(BaseModel):
     page: int = 1
@@ -67,9 +84,9 @@ class ListResponse(BaseModel):
     page: int
     pageSize: int
 
-# 初始化数据（生成10万条数据并保存到DataFrame）
+# 初始化数据（生成1000万条数据并保存到DataFrame）
 def init_data():
-    """初始化数据，生成10万条数据并保存到DataFrame"""
+    """初始化数据，生成1000万条数据并保存到DataFrame"""
     global data_df
     
     print(f"开始生成 {TOTAL_RECORDS} 条数据...")
@@ -125,6 +142,17 @@ def build_pandas_filter(df: pd.DataFrame, filters: Optional[FilterParams] = None
     if not filters:
         return pd.Series([True] * len(df))
     
+    # 调试：打印筛选条件
+    print(f"[筛选调试] 筛选条件类型: {type(filters)}")
+    if hasattr(filters, 'age') and filters.age:
+        print(f"[筛选调试] 年龄筛选: {filters.age}, 类型: {type(filters.age)}")
+        if isinstance(filters.age, FilterGroup):
+            print(f"[筛选调试] 年龄筛选逻辑: {filters.age.logic}, 条件数: {len(filters.age.filters)}")
+            for i, f in enumerate(filters.age.filters):
+                print(f"[筛选调试]   条件{i+1}: {f.operator} {f.value}")
+        elif hasattr(filters.age, 'operator'):
+            print(f"[筛选调试] 年龄筛选（单条件）: {filters.age.operator} {filters.age.value}")
+    
     # 初始化筛选掩码
     mask = pd.Series([True] * len(df))
     
@@ -146,17 +174,19 @@ def build_pandas_filter(df: pd.DataFrame, filters: Optional[FilterParams] = None
                         id_filters_mask.append(df['id'] <= id_filter.value)
             
             if id_filters_mask:
-                if filters.id.logic == 'AND':
-                    # AND逻辑：所有条件都满足
-                    id_mask = id_filters_mask[0]
-                    for m in id_filters_mask[1:]:
-                        id_mask &= m
-                    mask &= id_mask
-                else:  # OR
+                # 获取逻辑关系，默认为 AND
+                logic = getattr(filters.id, 'logic', 'AND')
+                if logic and logic.upper() == 'OR':
                     # OR逻辑：至少一个条件满足
                     id_mask = id_filters_mask[0]
                     for m in id_filters_mask[1:]:
                         id_mask |= m
+                    mask &= id_mask
+                else:  # AND 或默认
+                    # AND逻辑：所有条件都满足
+                    id_mask = id_filters_mask[0]
+                    for m in id_filters_mask[1:]:
+                        id_mask &= m
                     mask &= id_mask
         else:
             if filters.id.operator and filters.id.value is not None:
@@ -199,17 +229,19 @@ def build_pandas_filter(df: pd.DataFrame, filters: Optional[FilterParams] = None
                         age_filters_mask.append(df['age'] <= age_filter.value)
             
             if age_filters_mask:
-                if filters.age.logic == 'AND':
-                    # AND逻辑：所有条件都满足
-                    age_mask = age_filters_mask[0]
-                    for m in age_filters_mask[1:]:
-                        age_mask &= m
-                    mask &= age_mask
-                else:  # OR
+                # 获取逻辑关系，默认为 AND
+                logic = getattr(filters.age, 'logic', 'AND')
+                if logic and logic.upper() == 'OR':
                     # OR逻辑：至少一个条件满足
                     age_mask = age_filters_mask[0]
                     for m in age_filters_mask[1:]:
                         age_mask |= m
+                    mask &= age_mask
+                else:  # AND 或默认
+                    # AND逻辑：所有条件都满足
+                    age_mask = age_filters_mask[0]
+                    for m in age_filters_mask[1:]:
+                        age_mask &= m
                     mask &= age_mask
         else:
             if filters.age.operator and filters.age.value is not None:
@@ -246,17 +278,19 @@ def build_pandas_filter(df: pd.DataFrame, filters: Optional[FilterParams] = None
                         salary_filters_mask.append(df['salary'] <= salary_filter.value)
             
             if salary_filters_mask:
-                if filters.salary.logic == 'AND':
-                    # AND逻辑：所有条件都满足
-                    salary_mask = salary_filters_mask[0]
-                    for m in salary_filters_mask[1:]:
-                        salary_mask &= m
-                    mask &= salary_mask
-                else:  # OR
+                # 获取逻辑关系，默认为 AND
+                logic = getattr(filters.salary, 'logic', 'AND')
+                if logic and logic.upper() == 'OR':
                     # OR逻辑：至少一个条件满足
                     salary_mask = salary_filters_mask[0]
                     for m in salary_filters_mask[1:]:
                         salary_mask |= m
+                    mask &= salary_mask
+                else:  # AND 或默认
+                    # AND逻辑：所有条件都满足
+                    salary_mask = salary_filters_mask[0]
+                    for m in salary_filters_mask[1:]:
+                        salary_mask &= m
                     mask &= salary_mask
         else:
             if filters.salary.operator and filters.salary.value is not None:
@@ -478,6 +512,17 @@ async def get_data_list(request: ListRequest):
         # 打印筛选条件详情
         if request.filters:
             print(f"接收到筛选条件: {request.filters}")
+            print(f"筛选条件类型: {type(request.filters)}")
+            if hasattr(request.filters, 'age') and request.filters.age:
+                print(f"年龄筛选对象: {request.filters.age}")
+                print(f"年龄筛选对象类型: {type(request.filters.age)}")
+                print(f"是否为FilterGroup: {isinstance(request.filters.age, FilterGroup)}")
+                if hasattr(request.filters.age, 'logic'):
+                    print(f"年龄筛选逻辑: {request.filters.age.logic}")
+                if hasattr(request.filters.age, 'filters'):
+                    print(f"年龄筛选条件数: {len(request.filters.age.filters)}")
+                    for i, f in enumerate(request.filters.age.filters):
+                        print(f"  条件{i+1}: {f}")
         
         # 使用pandas进行筛选和分页
         paginated_df, total = get_filtered_data(
