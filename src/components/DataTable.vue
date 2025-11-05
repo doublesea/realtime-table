@@ -532,19 +532,26 @@ const loadData = async (keepSelectedRow = false) => {
     
     // 如果保持选中行，需要先查询选中行在新筛选条件下的位置
     let targetPage = pagination.page
+    let shouldKeepSelected = true
     if (keepSelectedRow && selectedRowId.value !== null) {
       try {
+        console.log('查询选中行位置，rowId:', selectedRowId.value, 'filters:', JSON.stringify(requestFilters))
         const positionResponse = await dataApi.getRowPosition(selectedRowId.value, requestFilters)
+        console.log('选中行位置查询结果:', positionResponse)
         if (positionResponse.found) {
           // 计算选中行应该在哪一页
           targetPage = Math.floor(positionResponse.position / pagination.pageSize) + 1
           console.log(`选中行位置: ${positionResponse.position}, 跳转到第 ${targetPage} 页`)
         } else {
           // 选中行不在筛选结果中，清除选中状态
+          console.log('选中行不在筛选结果中，清除选中状态')
           selectedRowId.value = null
+          shouldKeepSelected = false
         }
       } catch (error) {
         console.error('查询选中行位置失败:', error)
+        // 查询失败时，不清除选中状态，继续尝试在当前页查找
+        console.log('查询失败，保持选中状态，尝试在当前页查找')
       }
     }
 
@@ -561,13 +568,36 @@ const loadData = async (keepSelectedRow = false) => {
     pagination.page = response.page
     pagination.pageSize = response.pageSize
     
-    // 数据加载完成后，如果选中了行，滚动到选中行
-    if (selectedRowId.value !== null) {
+    // 数据加载完成后，如果选中了行，需要恢复选中状态
+    if (selectedRowId.value !== null && shouldKeepSelected) {
       await nextTick()
-      // 使用setTimeout确保DOM完全渲染
-      setTimeout(() => {
-        scrollToSelectedRow()
-      }, 100)
+      // 查找选中行在当前页数据中的位置
+      const selectedRow = tableData.value.find(row => row.id === selectedRowId.value)
+      if (selectedRow) {
+        // 设置表格的当前行，触发 highlight-current-row 高亮
+        if (tableRef.value) {
+          tableRef.value.setCurrentRow(selectedRow)
+          console.log('已设置当前行:', selectedRow.id)
+        }
+        // 使用setTimeout确保DOM完全渲染后再滚动
+        setTimeout(() => {
+          scrollToSelectedRow()
+        }, 100)
+      } else {
+        // 如果选中行不在当前页，但仍然在筛选结果中（已跳转到对应页面），尝试再次查找
+        console.log('选中行不在当前页数据中，当前页数据ID列表:', tableData.value.map(r => r.id))
+        // 延迟一点时间，确保表格已完全渲染
+        setTimeout(() => {
+          const row = tableData.value.find(r => r.id === selectedRowId.value)
+          if (row && tableRef.value) {
+            tableRef.value.setCurrentRow(row)
+            console.log('延迟查找后设置当前行:', row.id)
+            scrollToSelectedRow()
+          } else {
+            console.warn('延迟查找后仍未找到选中行，selectedRowId:', selectedRowId.value)
+          }
+        }, 150)
+      }
     }
   } catch (error: any) {
     const errorMsg = error?.response?.data?.detail || error?.message || '加载数据失败'

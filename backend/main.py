@@ -528,8 +528,12 @@ async def get_row_position(request: dict):
         if filters:
             try:
                 filter_params = FilterParams(**filters)
-            except:
-                pass
+                print(f"行位置查询 - 筛选条件解析成功: {filter_params}")
+            except Exception as e:
+                print(f"行位置查询 - 筛选条件解析失败: {e}, filters: {filters}")
+                import traceback
+                traceback.print_exc()
+                # 即使解析失败，也尝试使用空筛选条件继续查询
         
         mask = build_pandas_filter(data_df, filter_params)
         filtered_df = data_df[mask].copy()
