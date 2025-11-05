@@ -98,31 +98,64 @@
       <el-table-column v-if="columnVisible.id" prop="id" label="ID" min-width="120" fixed="left" sortable="custom">
         <template #header>
           <div class="column-header">
-            <span>ID</span>
-            <div style="display: flex; gap: 4px; margin-top: 4px">
-              <el-select
-                v-model="filterForm.idOperator"
-                placeholder="操作符"
-                size="small"
-                clearable
-                style="width: 60px"
-                @change="handleFilterChange"
+            <div class="header-title-row">
+              <el-icon 
+                class="sort-icon" 
+                :style="{ color: getSortIconColor('id') }"
+                @click.stop="handleHeaderSortClick('id')"
               >
-                <el-option label="=" value="=" />
-                <el-option label=">" value=">" />
-                <el-option label="<" value="<" />
-                <el-option label=">=" value=">=" />
-                <el-option label="<=" value="<=" />
-              </el-select>
-              <el-input-number
-                v-model="filterForm.idValue"
-                placeholder="值"
-                size="small"
-                :min="0"
-                :controls="false"
-                style="flex: 1"
-                @change="handleFilterChange"
-              />
+                <component :is="getSortIcon('id')" />
+              </el-icon>
+              <span>ID</span>
+              <el-popover
+                placement="bottom"
+                :width="280"
+                trigger="click"
+                :popper-options="{ modifiers: [{ name: 'preventOverflow', options: { padding: 8 } }, { name: 'computeStyles', options: { gpuAcceleration: false } }] }"
+                @click.stop
+              >
+                <template #reference>
+                  <el-icon 
+                    class="filter-icon" 
+                    :style="{ color: hasActiveFilter('id') ? '#409eff' : '#c0c4cc' }"
+                    @click.stop
+                  >
+                    <Filter />
+                  </el-icon>
+                </template>
+                <div class="filter-popover" @click.stop>
+                  <div style="margin-bottom: 8px; font-weight: 600;">ID筛选</div>
+                  <div style="display: flex; gap: 8px; align-items: center;">
+                    <el-select
+                      v-model="filterForm.idOperator"
+                      placeholder="操作符"
+                      size="small"
+                      clearable
+                      style="width: 80px"
+                      :teleported="false"
+                      @change="handleFilterChange"
+                      @click.stop
+                      popper-class="filter-select-dropdown"
+                    >
+                      <el-option label="=" value="=" />
+                      <el-option label=">" value=">" />
+                      <el-option label="<" value="<" />
+                      <el-option label=">=" value=">=" />
+                      <el-option label="<=" value="<=" />
+                    </el-select>
+                    <el-input-number
+                      v-model="filterForm.idValue"
+                      placeholder="值"
+                      size="small"
+                      :min="0"
+                      :controls="false"
+                      style="flex: 1"
+                      @change="handleFilterChange"
+                      @click.stop
+                    />
+                  </div>
+                </div>
+              </el-popover>
             </div>
           </div>
         </template>
@@ -130,122 +163,243 @@
       <el-table-column v-if="columnVisible.name" prop="name" label="姓名" min-width="120" sortable="custom">
         <template #header>
           <div class="column-header">
-            <span>姓名</span>
-            <el-input
-              v-model="filterForm.name"
-              placeholder="筛选姓名"
-              size="small"
-              clearable
-              style="width: 100%; margin-top: 4px"
-              @input="handleFilterChange"
-            >
-              <template #prefix>
-                <el-icon style="font-size: 12px;"><Search /></el-icon>
-              </template>
-            </el-input>
+            <div class="header-title-row">
+              <el-icon 
+                class="sort-icon" 
+                :style="{ color: getSortIconColor('name') }"
+                @click.stop="handleHeaderSortClick('name')"
+              >
+                <component :is="getSortIcon('name')" />
+              </el-icon>
+              <span>姓名</span>
+              <el-popover
+                placement="bottom"
+                :width="250"
+                trigger="click"
+                @click.stop
+              >
+                <template #reference>
+                  <el-icon 
+                    class="filter-icon" 
+                    :style="{ color: hasActiveFilter('name') ? '#409eff' : '#c0c4cc' }"
+                    @click.stop
+                  >
+                    <Filter />
+                  </el-icon>
+                </template>
+                <div class="filter-popover">
+                  <div style="margin-bottom: 8px; font-weight: 600;">姓名筛选</div>
+                  <el-input
+                    v-model="filterForm.name"
+                    placeholder="筛选姓名"
+                    size="small"
+                    clearable
+                    @input="handleFilterChange"
+                  >
+                    <template #prefix>
+                      <el-icon style="font-size: 12px;"><Search /></el-icon>
+                    </template>
+                  </el-input>
+                </div>
+              </el-popover>
+            </div>
           </div>
         </template>
       </el-table-column>
-      <el-table-column v-if="columnVisible.email" prop="email" label="邮箱" min-width="180">
+      <el-table-column v-if="columnVisible.email" prop="email" label="邮箱" min-width="180" sortable="custom">
         <template #header>
           <div class="column-header">
-            <span>邮箱</span>
-            <el-input
-              v-model="filterForm.email"
-              placeholder="筛选邮箱"
-              size="small"
-              clearable
-              style="width: 100%; margin-top: 4px"
-              @input="handleFilterChange"
-            />
+            <div class="header-title-row">
+              <el-icon 
+                class="sort-icon" 
+                :style="{ color: getSortIconColor('email') }"
+                @click.stop="handleHeaderSortClick('email')"
+              >
+                <component :is="getSortIcon('email')" />
+              </el-icon>
+              <span>邮箱</span>
+              <el-popover
+                placement="bottom"
+                :width="250"
+                trigger="click"
+                @click.stop
+              >
+                <template #reference>
+                  <el-icon 
+                    class="filter-icon" 
+                    :style="{ color: hasActiveFilter('email') ? '#409eff' : '#c0c4cc' }"
+                    @click.stop
+                  >
+                    <Filter />
+                  </el-icon>
+                </template>
+                <div class="filter-popover">
+                  <div style="margin-bottom: 8px; font-weight: 600;">邮箱筛选</div>
+                  <el-input
+                    v-model="filterForm.email"
+                    placeholder="筛选邮箱"
+                    size="small"
+                    clearable
+                    @input="handleFilterChange"
+                  />
+                </div>
+              </el-popover>
+            </div>
           </div>
         </template>
       </el-table-column>
       <el-table-column v-if="columnVisible.age" prop="age" label="年龄" min-width="200" sortable="custom">
         <template #header>
           <div class="column-header">
-            <span>年龄</span>
-            <div class="filter-group">
-              <div
-                v-for="(filter, index) in filterForm.ageFilters"
-                :key="index"
-                style="display: flex; gap: 4px; margin-top: 4px; align-items: center"
+            <div class="header-title-row">
+              <el-icon 
+                class="sort-icon" 
+                :style="{ color: getSortIconColor('age') }"
+                @click.stop="handleHeaderSortClick('age')"
               >
-                <el-select
-                  v-if="index > 0"
-                  v-model="filterForm.ageLogic"
-                  size="small"
-                  style="width: 50px"
-                  @change="handleFilterChange"
-                >
-                  <el-option label="AND" value="AND" />
-                  <el-option label="OR" value="OR" />
-                </el-select>
-                <el-select
-                  v-model="filter.operator"
-                  placeholder="操作符"
-                  size="small"
-                  clearable
-                  style="width: 60px"
-                  @change="handleFilterChange"
-                >
-                  <el-option label="=" value="=" />
-                  <el-option label=">" value=">" />
-                  <el-option label="<" value="<" />
-                  <el-option label=">=" value=">=" />
-                  <el-option label="<=" value="<=" />
-                </el-select>
-                <el-input-number
-                  v-model="filter.value"
-                  placeholder="值"
-                  size="small"
-                  :min="0"
-                  :max="100"
-                  :controls="false"
-                  style="flex: 1; min-width: 80px"
-                  @change="handleFilterChange"
-                />
-                <el-button
-                  v-if="filterForm.ageFilters.length > 1"
-                  :icon="Delete"
-                  size="small"
-                  text
-                  type="danger"
-                  @click="removeAgeFilter(index)"
-                />
-              </div>
-              <el-button
-                size="small"
-                text
-                type="primary"
-                style="margin-top: 4px; width: 100%"
-                @click="addAgeFilter"
+                <component :is="getSortIcon('age')" />
+              </el-icon>
+              <span>年龄</span>
+              <el-popover
+                placement="bottom"
+                :width="320"
+                trigger="click"
+                :popper-options="{ modifiers: [{ name: 'preventOverflow', options: { padding: 8 } }, { name: 'computeStyles', options: { gpuAcceleration: false } }] }"
+                @click.stop
               >
-                + 添加条件
-              </el-button>
+                <template #reference>
+                  <el-icon 
+                    class="filter-icon" 
+                    :style="{ color: hasActiveFilter('age') ? '#409eff' : '#c0c4cc' }"
+                    @click.stop
+                  >
+                    <Filter />
+                  </el-icon>
+                </template>
+                <div class="filter-popover" @click.stop>
+                  <div style="margin-bottom: 8px; font-weight: 600;">年龄筛选</div>
+                  <div class="filter-group">
+                    <div
+                      v-for="(filter, index) in filterForm.ageFilters"
+                      :key="index"
+                      style="display: flex; gap: 8px; margin-top: 8px; align-items: center"
+                    >
+                      <el-select
+                        v-if="index > 0"
+                        v-model="filterForm.ageLogic"
+                        size="small"
+                        style="width: 60px"
+                        :teleported="false"
+                        @change="handleFilterChange"
+                        @click.stop
+                        popper-class="filter-select-dropdown"
+                      >
+                        <el-option label="AND" value="AND" />
+                        <el-option label="OR" value="OR" />
+                      </el-select>
+                      <el-select
+                        v-model="filter.operator"
+                        placeholder="操作符"
+                        size="small"
+                        clearable
+                        style="width: 80px"
+                        :teleported="false"
+                        @change="handleFilterChange"
+                        @click.stop
+                        popper-class="filter-select-dropdown"
+                      >
+                        <el-option label="=" value="=" />
+                        <el-option label=">" value=">" />
+                        <el-option label="<" value="<" />
+                        <el-option label=">=" value=">=" />
+                        <el-option label="<=" value="<=" />
+                      </el-select>
+                      <el-input-number
+                        v-model="filter.value"
+                        placeholder="值"
+                        size="small"
+                        :min="0"
+                        :max="100"
+                        :controls="false"
+                        style="flex: 1; min-width: 80px"
+                        @change="handleFilterChange"
+                        @click.stop
+                      />
+                      <el-button
+                        v-if="filterForm.ageFilters.length > 1"
+                        :icon="Delete"
+                        size="small"
+                        text
+                        type="danger"
+                        @click.stop="removeAgeFilter(index)"
+                      />
+                    </div>
+                    <el-button
+                      size="small"
+                      text
+                      type="primary"
+                      style="margin-top: 8px; width: 100%"
+                      @click.stop="addAgeFilter"
+                    >
+                      + 添加条件
+                    </el-button>
+                  </div>
+                </div>
+              </el-popover>
             </div>
           </div>
         </template>
       </el-table-column>
-      <el-table-column v-if="columnVisible.department" prop="department" label="部门" min-width="120">
+      <el-table-column v-if="columnVisible.department" prop="department" label="部门" min-width="120" sortable="custom">
         <template #header>
           <div class="column-header">
-            <span>部门</span>
-            <el-select
-              v-model="filterForm.department"
-              placeholder="筛选部门"
-              size="small"
-              clearable
-              style="width: 100%; margin-top: 4px"
-              @change="handleFilterChange"
-            >
-              <el-option
-                v-for="dept in filterOptions.departments"
-                :key="dept"
-                :label="dept"
-                :value="dept"
-              />
-            </el-select>
+            <div class="header-title-row">
+              <el-icon 
+                class="sort-icon" 
+                :style="{ color: getSortIconColor('department') }"
+                @click.stop="handleHeaderSortClick('department')"
+              >
+                <component :is="getSortIcon('department')" />
+              </el-icon>
+              <span>部门</span>
+              <el-popover
+                placement="bottom"
+                :width="250"
+                trigger="click"
+                @click.stop
+              >
+                <template #reference>
+                  <el-icon 
+                    class="filter-icon" 
+                    :style="{ color: hasActiveFilter('department') ? '#409eff' : '#c0c4cc' }"
+                    @click.stop
+                  >
+                    <Filter />
+                  </el-icon>
+                </template>
+                <div class="filter-popover">
+                  <div style="margin-bottom: 8px; font-weight: 600;">部门筛选</div>
+                  <el-select
+                    v-model="filterForm.department"
+                    placeholder="筛选部门（可多选）"
+                    size="small"
+                    clearable
+                    multiple
+                    collapse-tags
+                    collapse-tags-tooltip
+                    style="width: 100%"
+                    @change="handleFilterChange"
+                  >
+                    <el-option
+                      v-for="dept in filterOptions.departments"
+                      :key="dept"
+                      :label="dept"
+                      :value="dept"
+                    />
+                  </el-select>
+                </div>
+              </el-popover>
+            </div>
           </div>
         </template>
         <template #default="scope">
@@ -255,64 +409,100 @@
       <el-table-column v-if="columnVisible.salary" prop="salary" label="薪资" min-width="200" sortable="custom">
         <template #header>
           <div class="column-header">
-            <span>薪资</span>
-            <div class="filter-group">
-              <div
-                v-for="(filter, index) in filterForm.salaryFilters"
-                :key="index"
-                style="display: flex; gap: 4px; margin-top: 4px; align-items: center"
+            <div class="header-title-row">
+              <el-icon 
+                class="sort-icon" 
+                :style="{ color: getSortIconColor('salary') }"
+                @click.stop="handleHeaderSortClick('salary')"
               >
-                <el-select
-                  v-if="index > 0"
-                  v-model="filterForm.salaryLogic"
-                  size="small"
-                  style="width: 50px"
-                  @change="handleFilterChange"
-                >
-                  <el-option label="AND" value="AND" />
-                  <el-option label="OR" value="OR" />
-                </el-select>
-                <el-select
-                  v-model="filter.operator"
-                  placeholder="操作符"
-                  size="small"
-                  clearable
-                  style="width: 60px"
-                  @change="handleFilterChange"
-                >
-                  <el-option label="=" value="=" />
-                  <el-option label=">" value=">" />
-                  <el-option label="<" value="<" />
-                  <el-option label=">=" value=">=" />
-                  <el-option label="<=" value="<=" />
-                </el-select>
-                <el-input-number
-                  v-model="filter.value"
-                  placeholder="值"
-                  size="small"
-                  :min="0"
-                  :controls="false"
-                  style="flex: 1; min-width: 80px"
-                  @change="handleFilterChange"
-                />
-                <el-button
-                  v-if="filterForm.salaryFilters.length > 1"
-                  :icon="Delete"
-                  size="small"
-                  text
-                  type="danger"
-                  @click="removeSalaryFilter(index)"
-                />
-              </div>
-              <el-button
-                size="small"
-                text
-                type="primary"
-                style="margin-top: 4px; width: 100%"
-                @click="addSalaryFilter"
+                <component :is="getSortIcon('salary')" />
+              </el-icon>
+              <span>薪资</span>
+              <el-popover
+                placement="bottom"
+                :width="320"
+                trigger="click"
+                :popper-options="{ modifiers: [{ name: 'preventOverflow', options: { padding: 8 } }, { name: 'computeStyles', options: { gpuAcceleration: false } }] }"
+                @click.stop
               >
-                + 添加条件
-              </el-button>
+                <template #reference>
+                  <el-icon 
+                    class="filter-icon" 
+                    :style="{ color: hasActiveFilter('salary') ? '#409eff' : '#c0c4cc' }"
+                    @click.stop
+                  >
+                    <Filter />
+                  </el-icon>
+                </template>
+                <div class="filter-popover" @click.stop>
+                  <div style="margin-bottom: 8px; font-weight: 600;">薪资筛选</div>
+                  <div class="filter-group">
+                    <div
+                      v-for="(filter, index) in filterForm.salaryFilters"
+                      :key="index"
+                      style="display: flex; gap: 8px; margin-top: 8px; align-items: center"
+                    >
+                      <el-select
+                        v-if="index > 0"
+                        v-model="filterForm.salaryLogic"
+                        size="small"
+                        style="width: 60px"
+                        :teleported="false"
+                        @change="handleFilterChange"
+                        @click.stop
+                        popper-class="filter-select-dropdown"
+                      >
+                        <el-option label="AND" value="AND" />
+                        <el-option label="OR" value="OR" />
+                      </el-select>
+                      <el-select
+                        v-model="filter.operator"
+                        placeholder="操作符"
+                        size="small"
+                        clearable
+                        style="width: 80px"
+                        :teleported="false"
+                        @change="handleFilterChange"
+                        @click.stop
+                        popper-class="filter-select-dropdown"
+                      >
+                        <el-option label="=" value="=" />
+                        <el-option label=">" value=">" />
+                        <el-option label="<" value="<" />
+                        <el-option label=">=" value=">=" />
+                        <el-option label="<=" value="<=" />
+                      </el-select>
+                      <el-input-number
+                        v-model="filter.value"
+                        placeholder="值"
+                        size="small"
+                        :min="0"
+                        :controls="false"
+                        style="flex: 1; min-width: 80px"
+                        @change="handleFilterChange"
+                        @click.stop
+                      />
+                      <el-button
+                        v-if="filterForm.salaryFilters.length > 1"
+                        :icon="Delete"
+                        size="small"
+                        text
+                        type="danger"
+                        @click.stop="removeSalaryFilter(index)"
+                      />
+                    </div>
+                    <el-button
+                      size="small"
+                      text
+                      type="primary"
+                      style="margin-top: 8px; width: 100%"
+                      @click.stop="addSalaryFilter"
+                    >
+                      + 添加条件
+                    </el-button>
+                  </div>
+                </div>
+              </el-popover>
             </div>
           </div>
         </template>
@@ -320,25 +510,56 @@
           ¥{{ scope.row.salary.toLocaleString() }}
         </template>
       </el-table-column>
-      <el-table-column v-if="columnVisible.status" prop="status" label="状态" min-width="120">
+      <el-table-column v-if="columnVisible.status" prop="status" label="状态" min-width="120" sortable="custom">
         <template #header>
           <div class="column-header">
-            <span>状态</span>
-            <el-select
-              v-model="filterForm.status"
-              placeholder="筛选状态"
-              size="small"
-              clearable
-              style="width: 100%; margin-top: 4px"
-              @change="handleFilterChange"
-            >
-              <el-option
-                v-for="status in filterOptions.statuses"
-                :key="status"
-                :label="status"
-                :value="status"
-              />
-            </el-select>
+            <div class="header-title-row">
+              <el-icon 
+                class="sort-icon" 
+                :style="{ color: getSortIconColor('status') }"
+                @click.stop="handleHeaderSortClick('status')"
+              >
+                <component :is="getSortIcon('status')" />
+              </el-icon>
+              <span>状态</span>
+              <el-popover
+                placement="bottom"
+                :width="250"
+                trigger="click"
+                @click.stop
+              >
+                <template #reference>
+                  <el-icon 
+                    class="filter-icon" 
+                    :style="{ color: hasActiveFilter('status') ? '#409eff' : '#c0c4cc' }"
+                    @click.stop
+                  >
+                    <Filter />
+                  </el-icon>
+                </template>
+                <div class="filter-popover">
+                  <div style="margin-bottom: 8px; font-weight: 600;">状态筛选</div>
+                  <el-select
+                    v-model="filterForm.status"
+                    placeholder="筛选状态（可多选）"
+                    size="small"
+                    clearable
+                    multiple
+                    collapse-tags
+                    collapse-tags-tooltip
+                    style="width: 100%"
+                    @change="handleFilterChange"
+                  >
+                    <el-option
+                      v-for="status in filterOptions.statuses"
+                      :key="status"
+                      :label="status"
+                      :value="status"
+                    />
+                  </el-select>
+                </div>
+              </el-popover>
+            </div>
           </div>
         </template>
         <template #default="scope">
@@ -353,15 +574,42 @@
       <el-table-column v-if="columnVisible.createTime" prop="createTime" label="创建时间" min-width="120" sortable="custom">
         <template #header>
           <div class="column-header">
-            <span>创建时间</span>
-            <el-input
-              v-model="filterForm.createTime"
-              placeholder="YYYY-MM-DD"
-              size="small"
-              clearable
-              style="width: 100%; margin-top: 4px"
-              @input="handleFilterChange"
-            />
+            <div class="header-title-row">
+              <el-icon 
+                class="sort-icon" 
+                :style="{ color: getSortIconColor('createTime') }"
+                @click.stop="handleHeaderSortClick('createTime')"
+              >
+                <component :is="getSortIcon('createTime')" />
+              </el-icon>
+              <span>创建时间</span>
+              <el-popover
+                placement="bottom"
+                :width="250"
+                trigger="click"
+                @click.stop
+              >
+                <template #reference>
+                  <el-icon 
+                    class="filter-icon" 
+                    :style="{ color: hasActiveFilter('createTime') ? '#409eff' : '#c0c4cc' }"
+                    @click.stop
+                  >
+                    <Filter />
+                  </el-icon>
+                </template>
+                <div class="filter-popover">
+                  <div style="margin-bottom: 8px; font-weight: 600;">创建时间筛选</div>
+                  <el-input
+                    v-model="filterForm.createTime"
+                    placeholder="YYYY-MM-DD"
+                    size="small"
+                    clearable
+                    @input="handleFilterChange"
+                  />
+                </div>
+              </el-popover>
+            </div>
           </div>
         </template>
       </el-table-column>
@@ -384,7 +632,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Search, Refresh, Delete, Setting, ArrowDown } from '@element-plus/icons-vue'
+import { Search, Refresh, Delete, Setting, ArrowDown, ArrowUp, Sort, Filter } from '@element-plus/icons-vue'
 import { TableData, FilterParams, NumberFilter } from '../types'
 import { dataApi } from '../api/data'
 import type { ElTable } from 'element-plus'
@@ -430,8 +678,8 @@ const filterForm = reactive({
   // 文本筛选
   name: undefined as string | undefined,
   email: undefined as string | undefined,
-  department: undefined as string | undefined,
-  status: undefined as string | undefined,
+  department: [] as string[],  // 支持多选，初始为空数组
+  status: [] as string[],  // 支持多选，初始为空数组
   // 年龄筛选（支持多个条件）
   ageFilters: [
     {
@@ -463,6 +711,12 @@ const pagination = reactive({
   total: 0
 })
 
+// 排序状态
+const sortInfo = reactive({
+  prop: undefined as string | undefined,
+  order: undefined as 'ascending' | 'descending' | null | undefined
+})
+
 // 加载筛选选项
 const loadFilterOptions = async () => {
   try {
@@ -491,8 +745,18 @@ const loadData = async (keepSelectedRow = false) => {
     // 文本筛选
     if (filterForm.name) filters.name = filterForm.name
     if (filterForm.email) filters.email = filterForm.email
-    if (filterForm.department) filters.department = filterForm.department
-    if (filterForm.status) filters.status = filterForm.status
+    // 部门筛选（支持多选）
+    if (filterForm.department && filterForm.department.length > 0) {
+      filters.department = filterForm.department.length === 1 
+        ? filterForm.department[0] 
+        : filterForm.department
+    }
+    // 状态筛选（支持多选）
+    if (filterForm.status && filterForm.status.length > 0) {
+      filters.status = filterForm.status.length === 1 
+        ? filterForm.status[0] 
+        : filterForm.status
+    }
     
     // 年龄筛选（支持多个条件组合和AND/OR逻辑）
     const ageFilters = filterForm.ageFilters.filter(
@@ -555,11 +819,16 @@ const loadData = async (keepSelectedRow = false) => {
       }
     }
 
-    const response = await dataApi.getList({
+    const requestParams = {
       page: targetPage,
       pageSize: pagination.pageSize,
-      filters: requestFilters
-    })
+      filters: requestFilters,
+      sortBy: sortInfo.prop,
+      sortOrder: sortInfo.order
+    }
+    console.log('发送请求参数:', JSON.stringify(requestParams, null, 2))
+    
+    const response = await dataApi.getList(requestParams)
     
     console.log('收到响应，总数:', response.total)
 
@@ -741,8 +1010,8 @@ const handleReset = () => {
   filterForm.idValue = undefined
   filterForm.name = undefined
   filterForm.email = undefined
-  filterForm.department = undefined
-  filterForm.status = undefined
+  filterForm.department = []  // 多选字段重置为空数组
+  filterForm.status = []  // 多选字段重置为空数组
   filterForm.ageFilters = [{ operator: undefined, value: undefined }]
   filterForm.ageLogic = 'AND'
   filterForm.salaryFilters = [{ operator: undefined, value: undefined }]
@@ -752,6 +1021,9 @@ const handleReset = () => {
   filterForm.ageMax = undefined
   filterForm.salaryMin = undefined
   filterForm.salaryMax = undefined
+  // 重置排序
+  sortInfo.prop = undefined
+  sortInfo.order = undefined
   pagination.page = 1
   selectedRowId.value = null // 重置时清除选中状态
   loadData(false)
@@ -777,8 +1049,25 @@ const handleSizeChange = (size: number) => {
 
 // 处理排序变化
 const handleSortChange = ({ column, prop, order }: any) => {
-  // 这里可以实现服务端排序，当前为前端排序提示
-  console.log('排序:', prop, order)
+  console.log('排序变化 - prop:', prop, 'order:', order, '完整参数:', { column, prop, order })
+  
+  // Element Plus 的 order 可能是 'ascending', 'descending', null 或 undefined
+  // 更新排序状态
+  if (prop && order) {
+    sortInfo.prop = prop
+    sortInfo.order = order === 'asc' ? 'ascending' : (order === 'desc' ? 'descending' : order)
+  } else {
+    // 清除排序
+    sortInfo.prop = undefined
+    sortInfo.order = undefined
+  }
+  
+  console.log('更新后的排序状态:', { prop: sortInfo.prop, order: sortInfo.order })
+  
+  // 重置到第一页
+  pagination.page = 1
+  // 重新加载数据
+  loadData(false)
 }
 
 // 处理列显示/隐藏切换
@@ -810,6 +1099,65 @@ const getStatusType = (status: string) => {
     '试用期': 'warning'
   }
   return typeMap[status] || ''
+}
+
+// 获取排序图标
+const getSortIcon = (prop: string) => {
+  if (sortInfo.prop === prop) {
+    return sortInfo.order === 'ascending' ? ArrowUp : ArrowDown
+  }
+  return Sort
+}
+
+// 获取排序图标颜色
+const getSortIconColor = (prop: string) => {
+  if (sortInfo.prop === prop) {
+    return '#409eff' // 激活状态使用主题色
+  }
+  return '#c0c4cc' // 未激活状态使用灰色
+}
+
+// 处理列头排序点击
+const handleHeaderSortClick = (prop: string) => {
+  // 计算下一个排序状态：无排序 -> 升序 -> 降序 -> 无排序
+  if (sortInfo.prop === prop) {
+    if (sortInfo.order === 'ascending') {
+      sortInfo.order = 'descending'
+    } else if (sortInfo.order === 'descending') {
+      sortInfo.prop = undefined
+      sortInfo.order = undefined
+    }
+  } else {
+    sortInfo.prop = prop
+    sortInfo.order = 'ascending'
+  }
+  
+  pagination.page = 1
+  loadData(false)
+}
+
+// 检查是否有激活的筛选条件
+const hasActiveFilter = (prop: string) => {
+  switch (prop) {
+    case 'id':
+      return !!(filterForm.idOperator && filterForm.idValue !== undefined)
+    case 'name':
+      return !!filterForm.name
+    case 'email':
+      return !!filterForm.email
+    case 'age':
+      return filterForm.ageFilters.some(f => f.operator && f.value !== undefined)
+    case 'department':
+      return filterForm.department && filterForm.department.length > 0
+    case 'salary':
+      return filterForm.salaryFilters.some(f => f.operator && f.value !== undefined)
+    case 'status':
+      return filterForm.status && filterForm.status.length > 0
+    case 'createTime':
+      return !!filterForm.createTime
+    default:
+      return false
+  }
 }
 
 // 初始化
@@ -844,6 +1192,73 @@ onMounted(() => {
 .column-header > span {
   font-weight: 600;
   margin-bottom: 4px;
+}
+
+/* 标题行样式（包含排序图标和标题） */
+.header-title-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.header-title-row > span {
+  font-weight: 600;
+  margin-bottom: 0;
+}
+
+/* 排序图标样式 */
+.sort-icon {
+  cursor: pointer;
+  font-size: 14px;
+  transition: color 0.2s;
+  flex-shrink: 0;
+}
+
+.sort-icon:hover {
+  color: #409eff !important;
+}
+
+/* 筛选图标样式 */
+.filter-icon {
+  cursor: pointer;
+  font-size: 14px;
+  transition: color 0.2s;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.filter-icon:hover {
+  color: #409eff !important;
+}
+
+/* 筛选悬浮框样式 */
+.filter-popover {
+  padding: 4px 0;
+}
+
+.filter-popover .filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 隐藏 Element Plus 默认的排序图标 */
+:deep(.el-table .caret-wrapper) {
+  display: none !important;
+}
+
+:deep(.el-table .sort-caret) {
+  display: none !important;
+}
+
+/* 防止筛选下拉菜单关闭 popover */
+:deep(.filter-select-dropdown) {
+  pointer-events: auto !important;
+}
+
+:deep(.filter-select-dropdown *) {
+  pointer-events: auto !important;
 }
 
 .filter-group {

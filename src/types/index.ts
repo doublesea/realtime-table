@@ -1,3 +1,4 @@
+
 export interface TableData {
   id: number
   name: string
@@ -23,8 +24,8 @@ export interface FilterParams {
   id?: string | NumberFilter | FilterGroup
   name?: string
   email?: string
-  department?: string
-  status?: string
+  department?: string | string[]  // 支持单选或多选
+  status?: string | string[]  // 支持单选或多选
   age?: NumberFilter | FilterGroup
   ageMin?: number
   ageMax?: number
@@ -37,6 +38,8 @@ export interface FilterParams {
 export interface PaginationParams {
   page: number
   pageSize: number
+  sortBy?: string  // 排序字段
+  sortOrder?: 'ascending' | 'descending' | null  // 排序方向
 }
 
 export interface ApiResponse<T> {

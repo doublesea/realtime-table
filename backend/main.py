@@ -46,8 +46,8 @@ class FilterParams(BaseModel):
     id: Optional[Union[NumberFilter, FilterGroup]] = None
     name: Optional[str] = None
     email: Optional[str] = None
-    department: Optional[str] = None
-    status: Optional[str] = None
+    department: Optional[Union[str, List[str]]] = None  # 支持单选或多选
+    status: Optional[Union[str, List[str]]] = None  # 支持单选或多选
     age: Optional[Union[NumberFilter, FilterGroup]] = None
     ageMin: Optional[int] = None  # 向后兼容
     ageMax: Optional[int] = None  # 向后兼容
@@ -77,6 +77,8 @@ class ListRequest(BaseModel):
     page: int = 1
     pageSize: int = 100
     filters: Optional[FilterParams] = None
+    sortBy: Optional[str] = None  # 排序字段
+    sortOrder: Optional[str] = None  # 排序方向: 'ascending' 或 'descending'
 
 class ListResponse(BaseModel):
     list: List[TableData]
@@ -206,10 +208,18 @@ def build_pandas_filter(df: pd.DataFrame, filters: Optional[FilterParams] = None
         mask &= df['name'].str.contains(filters.name, case=False, na=False)
     if filters.email:
         mask &= df['email'].str.contains(filters.email, case=False, na=False)
+    # 部门筛选（支持单选或多选）
     if filters.department:
-        mask &= (df['department'] == filters.department)
+        if isinstance(filters.department, list):
+            mask &= df['department'].isin(filters.department)
+        else:
+            mask &= (df['department'] == filters.department)
+    # 状态筛选（支持单选或多选）
     if filters.status:
-        mask &= (df['status'] == filters.status)
+        if isinstance(filters.status, list):
+            mask &= df['status'].isin(filters.status)
+        else:
+            mask &= (df['status'] == filters.status)
     
     # 年龄筛选
     if filters.age:
@@ -368,10 +378,22 @@ def matches_filter(id: int, name: str, email: str, age: int, department: str,
         return False
     if filters.email and filters.email.lower() not in email.lower():
         return False
-    if filters.department and department != filters.department:
-        return False
-    if filters.status and status != filters.status:
-        return False
+    # 部门筛选（支持单选或多选）
+    if filters.department:
+        if isinstance(filters.department, list):
+            if department not in filters.department:
+                return False
+        else:
+            if department != filters.department:
+                return False
+    # 状态筛选（支持单选或多选）
+    if filters.status:
+        if isinstance(filters.status, list):
+            if status not in filters.status:
+                return False
+        else:
+            if status != filters.status:
+                return False
     
     # 年龄筛选（支持操作符和多个条件组合，支持AND/OR逻辑）
     if filters.age:
@@ -470,8 +492,17 @@ def matches_filter(id: int, name: str, email: str, age: int, department: str,
 # 使用pandas进行筛选和分页
 def get_filtered_data(filters: Optional[FilterParams] = None, 
                      page: int = 1, 
-                     page_size: int = 100):
+                     page_size: int = 100,
+                     sort_by: Optional[str] = None,
+                     sort_order: Optional[str] = None):
     """使用pandas筛选数据并返回分页结果
+    
+    Args:
+        filters: 筛选条件
+        page: 页码
+        page_size: 每页大小
+        sort_by: 排序字段
+        sort_order: 排序方向 ('ascending' 或 'descending')
     
     Returns:
         (filtered_df, total_count): 筛选后的DataFrame和总记录数
@@ -484,6 +515,15 @@ def get_filtered_data(filters: Optional[FilterParams] = None,
     # 构建筛选条件
     mask = build_pandas_filter(data_df, filters)
     filtered_df = data_df[mask].copy()
+    
+    # 排序
+    if sort_by and sort_by in filtered_df.columns:
+        ascending = sort_order == 'ascending' if sort_order else True
+        print(f"执行排序: 字段={sort_by}, 升序={ascending}")
+        filtered_df = filtered_df.sort_values(by=sort_by, ascending=ascending, na_position='last')
+        print(f"排序后前5条数据的{sort_by}值: {filtered_df[sort_by].head().tolist()}")
+    elif sort_by:
+        print(f"警告: 排序字段 '{sort_by}' 不在DataFrame列中，可用列: {list(filtered_df.columns)}")
     
     # 计算总数
     total_count = len(filtered_df)
@@ -524,11 +564,16 @@ async def get_data_list(request: ListRequest):
                     for i, f in enumerate(request.filters.age.filters):
                         print(f"  条件{i+1}: {f}")
         
+        # 打印排序参数
+        print(f"排序参数 - sortBy: {request.sortBy}, sortOrder: {request.sortOrder}")
+        
         # 使用pandas进行筛选和分页
         paginated_df, total = get_filtered_data(
             filters=request.filters,
             page=request.page,
-            page_size=request.pageSize
+            page_size=request.pageSize,
+            sort_by=request.sortBy,
+            sort_order=request.sortOrder
         )
         
         print(f"筛选后的总数: {total}, 当前页数据量: {len(paginated_df)}")
