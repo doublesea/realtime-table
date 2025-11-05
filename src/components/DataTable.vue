@@ -44,50 +44,35 @@
       style="width: 100%; table-layout: auto"
       @sort-change="handleSortChange"
       @row-click="handleRowClick"
+      @expand-change="handleExpandChange"
       highlight-current-row
       :row-class-name="getRowClassName"
     >
       <!-- 展开列 -->
       <el-table-column type="expand" width="50" fixed="left">
         <template #default="{ row }">
-          <div class="expand-detail">
-            <div class="detail-item">
-              <span class="detail-label">ID:</span>
-              <span class="detail-value">{{ row.id }}</span>
+          <div class="expand-detail" v-loading="rowDetailsLoading[row.id]">
+            <template v-if="rowDetails[row.id] && rowDetails[row.id].length > 0">
+              <el-table :data="rowDetails[row.id]" border size="small" style="width: 100%">
+                <el-table-column 
+                  v-for="column in getDetailColumns(rowDetails[row.id])" 
+                  :key="column.prop"
+                  :prop="column.prop" 
+                  :label="column.label" 
+                  :min-width="column.minWidth || 150"
+                  align="left"
+                >
+                  <template #default="{ row: detailRow }">
+                    <span :class="column.class">{{ detailRow[column.prop] ?? '-' }}</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </template>
+            <div v-else-if="rowDetailsError[row.id]" class="error-message">
+              {{ rowDetailsError[row.id] }}
             </div>
-            <div class="detail-item">
-              <span class="detail-label">姓名:</span>
-              <span class="detail-value">{{ row.name }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">邮箱:</span>
-              <span class="detail-value">{{ row.email }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">年龄:</span>
-              <span class="detail-value">{{ row.age }} 岁</span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">部门:</span>
-              <span class="detail-value">
-                <el-tag>{{ row.department }}</el-tag>
-              </span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">薪资:</span>
-              <span class="detail-value">¥{{ row.salary.toLocaleString() }}</span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">状态:</span>
-              <span class="detail-value">
-                <el-tag :type="getStatusType(row.status)" size="small">
-                  {{ row.status }}
-                </el-tag>
-              </span>
-            </div>
-            <div class="detail-item">
-              <span class="detail-label">创建时间:</span>
-              <span class="detail-value">{{ row.createTime }}</span>
+            <div v-else class="loading-message">
+              正在加载详情...
             </div>
           </div>
         </template>
@@ -630,10 +615,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch, nextTick } from 'vue'
+import { ref, reactive, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search, Refresh, Delete, Setting, ArrowDown, ArrowUp, Sort, Filter } from '@element-plus/icons-vue'
-import { TableData, FilterParams, NumberFilter } from '../types'
+import { TableData, FilterParams, NumberFilter, RowDetail } from '../types'
 import { dataApi } from '../api/data'
 import type { ElTable } from 'element-plus'
 
@@ -646,6 +631,11 @@ const filterOptions = reactive({
   departments: [] as string[],
   statuses: [] as string[]
 })
+
+// 行详情数据
+const rowDetails = reactive<Record<number, RowDetail>>({})
+const rowDetailsLoading = reactive<Record<number, boolean>>({})
+const rowDetailsError = reactive<Record<number, string>>({})
 
 // 列配置
 const columnConfig = [
@@ -882,6 +872,38 @@ const loadData = async (keepSelectedRow = false) => {
   }
 }
 
+// 处理行展开/收起
+const handleExpandChange = async (row: TableData, expandedRows: TableData[]) => {
+  // 如果行被展开
+  if (expandedRows.includes(row)) {
+    // 如果已经加载过详情，不再重复加载
+    if (rowDetails[row.id]) {
+      return
+    }
+    
+    // 加载行详情
+    rowDetailsLoading[row.id] = true
+    rowDetailsError[row.id] = ''
+    
+    try {
+      const detail = await dataApi.getRowDetail(row)
+      rowDetails[row.id] = detail
+    } catch (error: any) {
+      const errorMsg = error?.message || '加载详情失败'
+      rowDetailsError[row.id] = errorMsg
+      ElMessage.error(`加载行详情失败: ${errorMsg}`)
+      console.error('加载行详情错误:', error)
+    } finally {
+      rowDetailsLoading[row.id] = false
+    }
+  } else {
+    // 行被收起时，可以选择清除详情数据（可选，保留数据可以避免重复加载）
+    // delete rowDetails[row.id]
+    // delete rowDetailsLoading[row.id]
+    // delete rowDetailsError[row.id]
+  }
+}
+
 // 处理行点击
 const handleRowClick = (row: TableData) => {
   selectedRowId.value = row.id
@@ -962,6 +984,33 @@ const scrollToSelectedRow = () => {
 // 获取行样式类名（用于高亮选中行）
 const getRowClassName = ({ row }: { row: TableData }) => {
   return row.id === selectedRowId.value ? 'selected-row' : ''
+}
+
+// 根据详情数据动态获取列配置
+const getDetailColumns = (detailData: RowDetail) => {
+  if (!detailData || detailData.length === 0) {
+    return []
+  }
+  
+  // 获取所有可能的字段名
+  const allKeys = new Set<string>()
+  detailData.forEach(item => {
+    Object.keys(item).forEach(key => {
+      allKeys.add(key)
+    })
+  })
+  
+  // 将字段名转换为列配置，直接使用原始key作为标题
+  const columns = Array.from(allKeys).map(key => {
+    return {
+      prop: key,
+      label: key,  // 直接使用原始key作为列标题
+      minWidth: 150,
+      class: 'detail-value'
+    }
+  })
+  
+  return columns
 }
 
 // 处理筛选变化
@@ -1285,6 +1334,41 @@ onMounted(() => {
   padding: 16px;
   background-color: #f5f7fa;
   border-radius: 4px;
+  min-height: 100px;
+}
+
+.loading-message,
+.error-message {
+  text-align: center;
+  padding: 20px;
+  color: #909399;
+}
+
+.error-message {
+  color: #f56c6c;
+}
+
+/* 详情表格样式 */
+.expand-detail :deep(.el-table) {
+  background-color: transparent;
+}
+
+.expand-detail :deep(.el-table__header) {
+  background-color: #fafafa;
+}
+
+.expand-detail :deep(.el-table th) {
+  background-color: #fafafa;
+  font-weight: 600;
+  color: #303133;
+}
+
+.expand-detail :deep(.el-table tr) {
+  background-color: #fff;
+}
+
+.expand-detail :deep(.el-table tr:hover) {
+  background-color: #f5f7fa;
 }
 
 .detail-item {

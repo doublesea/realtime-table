@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { TableData, FilterParams, PaginationParams, ApiResponse, ListResponse, FilterOptions, RowPositionResponse } from '../types'
+import { TableData, FilterParams, PaginationParams, ApiResponse, ListResponse, FilterOptions, RowPositionResponse, RowDetail } from '../types'
 
 // 动态获取 API base URL
 // 如果是在 NiceGUI 中嵌入，使用相对路径
@@ -110,6 +110,28 @@ export const dataApi = {
     } catch (error: any) {
       if (error.response) {
         console.error('API错误响应:', error.response.data)
+        throw new Error(error.response.data?.detail || error.response.data?.message || '服务器错误')
+      } else if (error.request) {
+        throw new Error('无法连接到服务器，请确保后端服务已启动')
+      } else {
+        throw error
+      }
+    }
+  },
+
+  // 获取行详情
+  getRowDetail: async (row: TableData): Promise<RowDetail> => {
+    try {
+      const response = await api.post<ApiResponse<RowDetail>>('/data/row-detail', {
+        row
+      })
+      if (response.data.success && response.data.data) {
+        return response.data.data
+      } else {
+        throw new Error('API返回数据格式错误')
+      }
+    } catch (error: any) {
+      if (error.response) {
         throw new Error(error.response.data?.detail || error.response.data?.message || '服务器错误')
       } else if (error.request) {
         throw new Error('无法连接到服务器，请确保后端服务已启动')

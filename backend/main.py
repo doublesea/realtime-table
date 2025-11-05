@@ -658,6 +658,64 @@ async def get_row_position(request: dict):
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/data/row-detail")
+async def get_row_detail(request: dict):
+    """获取行的详细信息
+    接收行数据，生成并返回需要展示的详细信息
+    """
+    try:
+        global data_df
+        
+        if data_df is None:
+            raise HTTPException(status_code=500, detail="数据未初始化")
+        
+        # 获取行数据
+        row_data = request.get('row')
+        if not row_data:
+            raise HTTPException(status_code=400, detail="缺少row参数")
+        
+        # 从行数据中提取ID
+        row_id = row_data.get('id')
+        if row_id is None:
+            raise HTTPException(status_code=400, detail="行数据中缺少id字段")
+        
+        # 在DataFrame中通过ID列查找该行
+        matching_rows = data_df[data_df['id'] == row_id]
+        if len(matching_rows) == 0:
+            raise HTTPException(status_code=404, detail=f"未找到ID为 {row_id} 的记录")
+        row_record = matching_rows.iloc[0].to_dict()
+        
+        # 生成详细信息（可以根据业务需求生成更丰富的信息）
+        detail = [{
+            "label": "ID",
+            "value": row_record.get('id'),
+            'detail': 'ID',
+            'type': 'text',
+            'format': 'int'
+        }, {
+            "label": "姓名",
+            "value": row_record.get('name'),
+            'detail': '姓名',
+            'type': 'text'
+        }, {
+            "label": "邮箱",
+            "value": row_record.get('email'),
+            'detail': '邮箱',
+            'type': 'text'
+        }]
+        
+        return {
+            "success": True,
+            "data": detail
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"获取行详情错误: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/data/filters")
 async def get_filters():
     """获取筛选选项"""

@@ -63,3 +63,11 @@ export interface RowPositionResponse {
   found: boolean
   position: number  // 在筛选结果中的位置（从0开始）
 }
+
+export interface RowDetailItem {
+  label: string  // 字段名称
+  value: any     // 字段值
+  detail?: string  // 详情说明（可选）
+}
+
+export type RowDetail = RowDetailItem[]  // 详情数据是一个列表
