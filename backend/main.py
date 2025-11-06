@@ -12,6 +12,15 @@ import asyncio
 import threading
 import pandas as pd
 import numpy as np
+import logging
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 try:
     from .data_table import DataTable, generate_columns_config_from_dataframe
@@ -29,7 +38,7 @@ def init_data() -> pd.DataFrame:
     """初始化数据，生成指定数量的数据并保存到DataFrame（优化版本）
     测试完全不同的字段组合，验证前端动态字段显示功能
     """
-    print(f"开始生成 {TOTAL_RECORDS} 条数据...")
+    logger.info(f"开始生成 {TOTAL_RECORDS} 条数据...")
     start_time = datetime.now()
     
     # 全新的字段定义 - 订单/交易数据
@@ -101,9 +110,8 @@ def init_data() -> pd.DataFrame:
     })
     
     elapsed = (datetime.now() - start_time).total_seconds()
-    print(f"数据生成完成，共 {len(data_df)} 条记录，总耗时: {elapsed:.2f}秒")
-    print(f"数据预览:\n{data_df.head()}")
-    print(f"字段列表: {list(data_df.columns)}")
+    logger.info(f"数据生成完成，共 {len(data_df)} 条记录，总耗时: {elapsed:.2f}秒")
+    logger.debug(f"字段列表: {list(data_df.columns)}")
     
     return data_df
 
@@ -126,15 +134,10 @@ async def startup_event():
     """应用启动时初始化数据（如果数据已初始化则跳过）"""
     # 检查数据是否已经初始化（例如在nicegui_vue_embed.py中已初始化）
     if is_data_initialized():
-        print("=" * 60)
-        print("数据已在外部初始化，跳过startup_event中的初始化")
-        print("=" * 60)
+        logger.info("数据已在外部初始化，跳过startup_event中的初始化")
         return
     
-    print("=" * 60)
-    print("开始初始化数据...")
-    print("=" * 60)
-    
+    logger.info("开始初始化数据...")
     # 在后台线程中初始化数据，避免阻塞
     init_thread = threading.Thread(target=_init_data_thread, daemon=False)
     init_thread.start()
@@ -148,21 +151,18 @@ async def startup_event():
         await asyncio.sleep(wait_interval)
         waited_time += wait_interval
         if waited_time >= max_wait_time:
+            logger.error(f"数据初始化超时（{max_wait_time}秒）")
             raise RuntimeError(f"数据初始化超时（{max_wait_time}秒）")
-        if waited_time % 5 == 0:  # 每5秒输出一次等待信息
-            print(f"等待数据初始化中... (已等待 {waited_time:.1f}秒)")
     
     # 获取初始化完成的数据
     data_df = _data_df
     
     # 确保数据已完全加载
     if data_df is None or data_df.empty:
+        logger.error("数据初始化失败：DataFrame为空")
         raise RuntimeError("数据初始化失败：DataFrame为空")
     
-    print("=" * 60)
-    print("开始创建DataTable实例...")
-    print("=" * 60)
-    
+    logger.info("开始创建DataTable实例...")
     # 根据DataFrame生成列配置
     columns_config = generate_columns_config_from_dataframe(data_df)
     # 创建DataTable实例
@@ -171,13 +171,7 @@ async def startup_event():
     # 设置全局DataTable实例
     set_data_table(data_table)
     set_data_initialized(True)
-    
-    print("=" * 60)
-    print(f"DataTable实例创建完成！")
-    print(f"  - 列数: {len(columns_config)}")
-    print(f"  - 数据行数: {len(data_df)}")
-    print(f"  - 状态: 已就绪，可以处理请求")
-    print("=" * 60)
+    logger.info(f"DataTable实例创建完成！列数: {len(columns_config)}, 数据行数: {len(data_df)}")
 
 
 if __name__ == "__main__":
@@ -195,15 +189,9 @@ if __name__ == "__main__":
             return True
     
     if not check_port(3001):
-        print("=" * 60)
-        print("⚠ 错误: 端口 3001 已被占用")
-        print("   请先终止占用端口的进程，或使用其他端口")
-        print("   如果已通过 nicegui_vue_embed.py 启动，请直接使用该服务")
-        print("=" * 60)
+        logger.error("端口 3001 已被占用，请先终止占用端口的进程，或使用其他端口")
         exit(1)
     
-    print("=" * 60)
-    print("直接启动 FastAPI 服务（不推荐）")
-    print("建议使用 nicegui_vue_embed.py 启动完整应用")
-    print("=" * 60)
+    logger.info("启动 FastAPI 服务（端口: 3001）")
+    logger.info("建议使用 nicegui_vue_embed.py 启动完整应用")
     uvicorn.run(app, host="0.0.0.0", port=3001)

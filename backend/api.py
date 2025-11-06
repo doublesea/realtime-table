@@ -8,6 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 from typing import Optional, List, Union, Dict, Any
 import asyncio
+import logging
+
+# 配置日志
+logger = logging.getLogger(__name__)
 
 # 导入DataTable类
 try:
@@ -148,27 +152,6 @@ async def get_data_list(request: ListRequest):
                     detail=f"数据正在初始化中，请稍后重试。当前状态: data_table={'已创建' if data_table else '未创建'}, _data_initialized={_data_initialized}"
                 )
         
-        # 打印筛选条件详情
-        if request.filters:
-            print(f"接收到筛选条件: {request.filters}")
-            print(f"筛选条件类型: {type(request.filters)}")
-            # 打印所有筛选字段
-            if hasattr(request.filters, 'model_dump'):
-                filter_dict = request.filters.model_dump(exclude_none=True)
-            elif hasattr(request.filters, 'dict'):
-                filter_dict = request.filters.dict(exclude_none=True)
-            else:
-                filter_dict = {}
-            
-            print(f"筛选字段列表: {list(filter_dict.keys())}")
-            for field_name, field_value in filter_dict.items():
-                print(f"  字段 '{field_name}': 值={field_value}, 类型={type(field_value)}")
-                if isinstance(field_value, list):
-                    print(f"    列表长度: {len(field_value)}, 内容: {field_value}")
-        
-        # 打印排序参数
-        print(f"排序参数 - sortBy: {request.sortBy}, sortOrder: {request.sortOrder}")
-        
         # 使用DataTable类获取数据
         result_data = data_table.get_list(
             filters=request.filters,
@@ -178,24 +161,16 @@ async def get_data_list(request: ListRequest):
             sort_order=request.sortOrder
         )
         
-        print(f"筛选后的总数: {result_data['total']}, 当前页数据量: {len(result_data['list'])}")
-        if len(result_data['list']) > 0:
-            print(f"返回的第一条数据示例: {result_data['list'][0]}")
-        else:
-            print("警告: 返回的数据列表为空!")
-        
         result = {
             "success": True,
             "data": result_data
         }
         
-        print(f"返回的完整结果结构: success={result['success']}, data.keys={list(result['data'].keys())}")
-        
         return result
+    except HTTPException:
+        raise
     except Exception as e:
-        import traceback
-        print(f"错误: {str(e)}")
-        print(traceback.format_exc())
+        logger.error(f"获取数据列表失败: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -224,12 +199,10 @@ async def get_row_position(request: dict):
         if filters:
             try:
                 filter_params = FilterParams(**filters)
-                print(f"行位置查询 - 筛选条件解析成功: {filter_params}")
             except Exception as e:
-                print(f"行位置查询 - 筛选条件解析失败: {e}, filters: {filters}")
-                import traceback
-                traceback.print_exc()
+                logger.warning(f"行位置查询 - 筛选条件解析失败: {e}, filters: {filters}")
                 # 即使解析失败，也尝试使用空筛选条件继续查询
+                pass
         
         # 使用DataTable类获取行位置
         position_data = data_table.get_row_position(row_id, filter_params)
@@ -238,10 +211,10 @@ async def get_row_position(request: dict):
             "success": True,
             "data": position_data
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        import traceback
-        print(f"错误: {str(e)}")
-        print(traceback.format_exc())
+        logger.error(f"获取行位置失败: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -284,9 +257,7 @@ async def get_row_detail(request: dict):
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        print(f"获取行详情错误: {str(e)}")
-        print(traceback.format_exc())
+        logger.error(f"获取行详情失败: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -315,9 +286,7 @@ async def get_columns_config():
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        print(f"获取列配置错误: {str(e)}")
-        print(traceback.format_exc())
+        logger.error(f"获取列配置失败: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

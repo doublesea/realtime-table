@@ -439,15 +439,12 @@ const loadColumnsConfig = async () => {
     columnConfig.value = config.columns
     initColumnVisible(config.columns)
     initFilterForm(config.columns)
-    console.log('列配置加载成功:', columnConfig.value)
   } catch (error) {
-    console.error('加载列配置失败:', error)
     ElMessage.error('加载列配置失败，使用默认配置')
     // 使用默认列配置
     columnConfig.value = defaultColumns
     initColumnVisible(defaultColumns)
     initFilterForm(defaultColumns)
-    console.log('使用默认列配置:', columnConfig.value)
   }
 }
 
@@ -461,13 +458,12 @@ const loadFilterOptions = async () => {
     if (options.statuses) filterOptions['status'] = options.statuses
     // 可以扩展其他字段的选项加载
   } catch (error) {
-    console.error('加载筛选选项失败:', error)
+    // 加载筛选选项失败，静默处理
   }
 }
 
 // 加载数据
 const loadData = async (keepSelectedRow = false) => {
-  console.log('📊 loadData 被调用', new Error().stack?.split('\n')[2]?.trim())
   loading.value = true
   try {
     const filters: FilterParams = {}
@@ -522,15 +518,10 @@ const loadData = async (keepSelectedRow = false) => {
         case 'select':
           // 多选或单选筛选
           const selectValue = filterForm[prop]
-          console.log(`  [构建筛选] ${prop}: selectValue =`, selectValue, '类型:', typeof selectValue, 'isArray:', Array.isArray(selectValue))
           if (Array.isArray(selectValue) && selectValue.length > 0) {
             filters[prop] = selectValue.length === 1 ? selectValue[0] : selectValue
-            console.log(`  [构建筛选] ${prop}: 设置为`, filters[prop])
           } else if (selectValue !== undefined && selectValue !== null && selectValue !== '') {
             filters[prop] = selectValue
-            console.log(`  [构建筛选] ${prop}: 设置为单个值`, filters[prop])
-          } else {
-            console.log(`  [构建筛选] ${prop}: 值为空，跳过`)
           }
           break
       }
@@ -544,23 +535,17 @@ const loadData = async (keepSelectedRow = false) => {
     let shouldKeepSelected = true
     if (keepSelectedRow && selectedRowId.value !== null) {
       try {
-        console.log('查询选中行位置，rowId:', selectedRowId.value, 'filters:', JSON.stringify(requestFilters))
         const positionResponse = await dataApi.getRowPosition(selectedRowId.value, requestFilters)
-        console.log('选中行位置查询结果:', positionResponse)
         if (positionResponse.found) {
           // 计算选中行应该在哪一页
           targetPage = Math.floor(positionResponse.position / pagination.pageSize) + 1
-          console.log(`选中行位置: ${positionResponse.position}, 跳转到第 ${targetPage} 页`)
         } else {
           // 选中行不在筛选结果中，清除选中状态
-          console.log('选中行不在筛选结果中，清除选中状态')
           selectedRowId.value = null
           shouldKeepSelected = false
         }
       } catch (error) {
-        console.error('查询选中行位置失败:', error)
         // 查询失败时，不清除选中状态，继续尝试在当前页查找
-        console.log('查询失败，保持选中状态，尝试在当前页查找')
       }
     }
 
@@ -571,11 +556,8 @@ const loadData = async (keepSelectedRow = false) => {
       sortBy: sortInfo.prop,
       sortOrder: sortInfo.order
     }
-    console.log('发送请求参数:', JSON.stringify(requestParams, null, 2))
     
     const response = await dataApi.getList(requestParams)
-    
-    console.log('收到响应，总数:', response.total)
 
     tableData.value = response.list
     pagination.total = response.total
@@ -591,7 +573,6 @@ const loadData = async (keepSelectedRow = false) => {
         // 设置表格的当前行，触发 highlight-current-row 高亮
         if (tableRef.value) {
           tableRef.value.setCurrentRow(selectedRow)
-          console.log('已设置当前行:', selectedRow.id)
         }
         // 使用setTimeout确保DOM完全渲染后再滚动
         setTimeout(() => {
@@ -599,16 +580,12 @@ const loadData = async (keepSelectedRow = false) => {
         }, 100)
       } else {
         // 如果选中行不在当前页，但仍然在筛选结果中（已跳转到对应页面），尝试再次查找
-        console.log('选中行不在当前页数据中，当前页数据ID列表:', tableData.value.map(r => r.id))
         // 延迟一点时间，确保表格已完全渲染
         setTimeout(() => {
           const row = tableData.value.find(r => r.id === selectedRowId.value)
           if (row && tableRef.value) {
             tableRef.value.setCurrentRow(row)
-            console.log('延迟查找后设置当前行:', row.id)
             scrollToSelectedRow()
-          } else {
-            console.warn('延迟查找后仍未找到选中行，selectedRowId:', selectedRowId.value)
           }
         }, 150)
       }
@@ -616,12 +593,6 @@ const loadData = async (keepSelectedRow = false) => {
   } catch (error: any) {
     const errorMsg = error?.response?.data?.detail || error?.message || '加载数据失败'
     ElMessage.error(`加载数据失败: ${errorMsg}`)
-    console.error('加载数据错误详情:', {
-      error,
-      response: error?.response,
-      message: error?.message,
-      stack: error?.stack
-    })
   } finally {
     loading.value = false
   }
@@ -647,7 +618,6 @@ const handleExpandChange = async (row: TableData, expandedRows: TableData[]) => 
       const errorMsg = error?.message || '加载详情失败'
       rowDetailsError[row.id] = errorMsg
       ElMessage.error(`加载行详情失败: ${errorMsg}`)
-      console.error('加载行详情错误:', error)
     } finally {
       rowDetailsLoading[row.id] = false
     }
@@ -662,7 +632,6 @@ const handleExpandChange = async (row: TableData, expandedRows: TableData[]) => 
 // 处理行点击
 const handleRowClick = (row: TableData) => {
   selectedRowId.value = row.id
-  console.log('选中行ID:', row.id)
   // 点击后滚动到该行
   nextTick(() => {
     scrollToSelectedRow()
@@ -712,7 +681,6 @@ const scrollToSelectedRow = () => {
       inline: 'nearest'
     })
   } catch (error) {
-    console.error('滚动到选中行失败:', error)
     // 如果scrollIntoView失败，尝试使用scrollTo方法
     try {
       const tableEl = tableRef.value.$el
@@ -731,7 +699,7 @@ const scrollToSelectedRow = () => {
         }
       }
     } catch (fallbackError) {
-      console.error('滚动到选中行失败（备用方法）:', fallbackError)
+      // 备用方法也失败，静默处理
     }
   }
 }
@@ -810,11 +778,9 @@ const initFilterForm = (columns: ColumnConfig[]) => {
         } else {
           filterInputs[col.prop] = undefined
         }
-        console.log(`[初始化] ${col.prop}: filterInputs =`, filterInputs[col.prop], 'filterForm =', filterForm[col.prop])
         // 初始化筛选选项
         if (col.options && col.options.length > 0) {
           filterOptions[col.prop] = col.options
-          console.log(`[初始化] ${col.prop}: 选项数量 =`, col.options.length)
         }
         break
       case 'text':
@@ -829,9 +795,6 @@ const initFilterForm = (columns: ColumnConfig[]) => {
 
 // 同步输入状态到筛选表单
 const syncFilterInputsToForm = () => {
-  console.log('🔄 同步筛选输入到表单...')
-  console.log('filterInputs:', JSON.parse(JSON.stringify(filterInputs)))
-  
   // 遍历所有filterInputs的键，同步到filterForm
   Object.keys(filterInputs).forEach(key => {
     const value = filterInputs[key]
@@ -843,25 +806,16 @@ const syncFilterInputsToForm = () => {
       } else {
         // 多选数组，需要浅拷贝
         filterForm[key] = [...value]
-        console.log(`  [同步] ${key}: 数组 ->`, filterForm[key])
       }
     } else {
       // 其他类型直接复制
       filterForm[key] = value
-      if (value !== undefined && value !== null) {
-        console.log(`  [同步] ${key}:`, filterForm[key])
-      }
     }
   })
-  
-  console.log('filterForm:', JSON.parse(JSON.stringify(filterForm)))
 }
 
 // 处理筛选变化（仅在确认时调用）
 const handleFilterChange = () => {
-  console.log('🔵 筛选确认触发 - 同步并刷新数据')
-  console.log('当前 filterInputs:', JSON.parse(JSON.stringify(filterInputs)))
-  
   // 先同步输入状态到筛选表单
   syncFilterInputsToForm()
   
@@ -874,8 +828,6 @@ const handleFilterChange = () => {
 
 // 处理多选变化（仅保持悬浮框打开，不自动应用筛选）
 const handleMultiSelectChange = (prop: string) => {
-  console.log(`多选变化: ${prop} =`, filterInputs[prop])
-  
   // 标记这个字段的 popover 需要保持打开
   keepOpenPopovers.add(prop)
   
@@ -993,8 +945,6 @@ const handleSizeChange = (size: number) => {
 
 // 处理排序变化
 const handleSortChange = ({ column, prop, order }: any) => {
-  console.log('排序变化 - prop:', prop, 'order:', order, '完整参数:', { column, prop, order })
-  
   // Element Plus 的 order 可能是 'ascending', 'descending', null 或 undefined
   // 更新排序状态
   if (prop && order) {
@@ -1005,8 +955,6 @@ const handleSortChange = ({ column, prop, order }: any) => {
     sortInfo.prop = undefined
     sortInfo.order = undefined
   }
-  
-  console.log('更新后的排序状态:', { prop: sortInfo.prop, order: sortInfo.order })
   
   // 重置到第一页
   pagination.page = 1
@@ -1032,7 +980,6 @@ const handleColumnToggle = (prop: string) => {
     }
   }
   // 列显示状态已在 checkbox 的 v-model 中更新
-  console.log(`列 ${prop} ${columnVisible[prop] ? '显示' : '隐藏'}`)
 }
 
 // 获取状态类型
@@ -1145,9 +1092,7 @@ onMounted(async () => {
     loadFilterOptions()
     // 确保列配置加载完成后再加载数据
     await loadData()
-    console.log('初始化完成，数据已加载')
   } catch (error) {
-    console.error('初始化失败:', error)
     // 即使列配置加载失败，也尝试加载数据（使用默认配置）
     if (columnConfig.value.length === 0) {
       columnConfig.value = defaultColumns

@@ -10,6 +10,15 @@ import threading
 import time
 import uvicorn
 from fastapi.staticfiles import StaticFiles
+import logging
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 # 导入后端API应用和数据初始化函数
 from backend.api import app as fastapi_app, is_data_initialized, get_data_table, set_data_table, set_data_initialized
@@ -40,15 +49,10 @@ def run_fastapi_server():
     """在后台线程中运行FastAPI服务器"""
     global _api_server_running
     try:
-        print("=" * 60)
-        print("启动FastAPI后端服务...")
-        print("=" * 60)
-        
+        logger.info("启动FastAPI后端服务...")
         # 检查端口是否已被占用
         if not check_port_available(3001):
-            print("⚠ 警告: 端口 3001 已被占用，可能已有服务在运行")
-            print("   如果已有 FastAPI 服务在运行，请直接使用该服务")
-            print("   或者终止占用端口的进程后重试")
+            logger.warning("端口 3001 已被占用，可能已有服务在运行")
             _api_server_running = False
             return
         
@@ -56,13 +60,12 @@ def run_fastapi_server():
         _api_server_running = True
     except OSError as e:
         if "10048" in str(e) or "Address already in use" in str(e):
-            print(f"⚠ 端口 3001 已被占用，可能已有 FastAPI 服务在运行")
-            print(f"   请检查是否已有服务在运行，或使用其他端口")
+            logger.warning("端口 3001 已被占用，可能已有 FastAPI 服务在运行")
         else:
-            print(f"FastAPI服务启动失败: {e}")
+            logger.error(f"FastAPI服务启动失败: {e}", exc_info=True)
         _api_server_running = False
     except Exception as e:
-        print(f"FastAPI服务启动失败: {e}")
+        logger.error(f"FastAPI服务启动失败: {e}", exc_info=True)
         _api_server_running = False
 
 
@@ -164,43 +167,38 @@ def main_page():
 
 
 if __name__ in {'__main__', '__mp_main__'}:
-    print("=" * 60)
-    print("大数据量表格系统 - 统一入口启动")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("大数据量表格系统 - 统一入口启动")
+    logger.info("=" * 60)
     
     # 1. 先初始化数据（在主线程中，确保完成）
-    print("\n[1/3] 初始化数据...")
+    logger.info("\n[1/3] 初始化数据...")
     try:
         data_df = init_data()
-        print("✓ 数据生成完成")
+        logger.info("✓ 数据生成完成")
         
         # 创建列配置
-        print("创建列配置...")
+        logger.info("创建列配置...")
         columns_config = generate_columns_config_from_dataframe(data_df)
         
         # 创建DataTable实例
-        print("创建DataTable实例...")
+        logger.info("创建DataTable实例...")
         data_table = DataTable(dataframe=data_df, columns_config=columns_config)
         
         # 设置到API模块
         set_data_table(data_table)
         set_data_initialized(True)
-        
-        print(f"✓ DataTable实例创建完成，共 {len(data_df)} 条记录")
+        logger.info(f"✓ DataTable实例创建完成，共 {len(data_df)} 条记录")
     except Exception as e:
-        import traceback
-        print(f"数据初始化失败: {e}")
-        traceback.print_exc()
+        logger.error(f"数据初始化失败: {e}", exc_info=True)
         raise
     
     # 2. 在后台线程启动FastAPI服务
-    print("\n[2/3] 启动FastAPI后端服务...")
-    
+    logger.info("\n[2/3] 启动FastAPI后端服务...")
     # 检查是否已有服务在运行
     if not check_port_available(3001):
-        print("⚠ 检测到端口 3001 已被占用")
-        print("   假设已有 FastAPI 服务在运行，跳过启动")
-        print("   如果服务未正常运行，请先终止占用端口的进程")
+        logger.info("⚠ 检测到端口 3001 已被占用")
+        logger.info("   假设已有 FastAPI 服务在运行，跳过启动")
     else:
         _api_server_thread = threading.Thread(target=run_fastapi_server, daemon=True)
         _api_server_thread.start()
@@ -210,21 +208,21 @@ if __name__ in {'__main__', '__mp_main__'}:
         
         # 再次检查服务是否成功启动
         if check_port_available(3001):
-            print("⚠ 警告: FastAPI服务可能启动失败，请检查日志")
+            logger.warning("⚠ 警告: FastAPI服务可能启动失败，请检查日志")
         else:
-            print("✓ FastAPI服务已启动")
+            logger.info("✓ FastAPI服务已启动")
     
     # 3. 配置NiceGUI静态文件和路由
-    print("\n[3/3] 配置NiceGUI服务...")
+    logger.info("\n[3/3] 配置NiceGUI服务...")
     from nicegui import app as nicegui_app
     
     # 挂载静态文件（如果 dist 目录存在）
     if dist_path.exists():
         nicegui_app.mount("/static", StaticFiles(directory=str(dist_path), html=True), name="static")
         file_count = len(list(dist_path.rglob('*')))
-        print(f"✓ Vue 应用已挂载，包含 {file_count} 个文件")
+        logger.info(f"✓ Vue 应用已挂载，包含 {file_count} 个文件")
     else:
-        print("⚠ Vue 应用未构建，请运行 'npm run build' 构建 Vue 应用")
+        logger.warning("⚠ Vue 应用未构建，请运行 'npm run build' 构建 Vue 应用")
     
     # 添加API代理：将 /api/* 请求转发到 FastAPI 服务
     import httpx
@@ -268,7 +266,7 @@ if __name__ in {'__main__', '__mp_main__'}:
                     headers=dict(response.headers)
                 )
         except Exception as e:
-            print(f"API代理错误: {e}")
+            logger.error(f"API代理错误: {e}", exc_info=True)
             return Response(
                 content=f'{{"error": "代理请求失败: {str(e)}"}}',
                 status_code=500,
@@ -284,15 +282,15 @@ if __name__ in {'__main__', '__mp_main__'}:
             "data_initialized": is_data_initialized()
         }
     
-    print("=" * 60)
-    print("启动完成！")
-    print("=" * 60)
-    print("服务地址：")
-    print("  - NiceGUI主页: http://localhost:8080/")
-    print("  - 数据表格: http://localhost:8080/data-table")
-    print("  - FastAPI后端: http://localhost:3001")
-    print("  - API文档: http://localhost:3001/docs")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("启动完成！")
+    logger.info("=" * 60)
+    logger.info("服务地址：")
+    logger.info("  - NiceGUI主页: http://localhost:8080/")
+    logger.info("  - 数据表格: http://localhost:8080/data-table")
+    logger.info("  - FastAPI后端: http://localhost:3001")
+    logger.info("  - API文档: http://localhost:3001/docs")
+    logger.info("=" * 60)
     
     # 4. 启动NiceGUI
     ui.run(title='大数据量表格系统', port=8080, show=True)

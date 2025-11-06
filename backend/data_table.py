@@ -88,16 +88,12 @@ class DataTable:
             
             # 检查字段是否存在于DataFrame中
             if field_name not in self.dataframe.columns:
-                print(f"  [筛选] 跳过字段 '{field_name}': 不在DataFrame列中")
                 continue
             
             # 查找对应的列配置
             col_config = next((c for c in self.columns_config if c.prop == field_name), None)
             if not col_config or not col_config.filterable:
-                print(f"  [筛选] 跳过字段 '{field_name}': 不可筛选")
                 continue
-            
-            print(f"  [筛选] 处理字段 '{field_name}': 类型={col_config.filterType}, 值={filter_value}, 值类型={type(filter_value)}")
             
             # 根据筛选类型处理
             if col_config.filterType == 'number':
@@ -206,35 +202,24 @@ class DataTable:
             
             elif col_config.filterType in ['multi-select', 'select']:
                 # 多选或单选筛选
-                print(f"    [多选筛选] 字段={field_name}, 值={filter_value}, 值类型={type(filter_value)}")
-                
                 # 统一处理：如果是单个值，转换为列表
                 if isinstance(filter_value, list):
                     filter_list = filter_value
                 elif filter_value is not None and filter_value != '':
                     filter_list = [filter_value]
                 else:
-                    print(f"    [多选筛选] 值为空，跳过")
                     continue
                 
                 if len(filter_list) > 0:
-                    print(f"    [多选筛选] 使用列表筛选: {filter_list}")
                     # 确保 DataFrame 列的数据类型匹配
                     try:
                         mask &= self.dataframe[field_name].isin(filter_list)
-                        matched_count = mask.sum()
-                        print(f"    [多选筛选] 筛选后匹配数量: {matched_count}")
                     except Exception as e:
-                        print(f"    [多选筛选] 筛选出错: {e}")
                         # 尝试转换为字符串后再筛选
                         try:
                             mask &= self.dataframe[field_name].astype(str).isin([str(v) for v in filter_list])
-                            matched_count = mask.sum()
-                            print(f"    [多选筛选] 使用字符串转换后，匹配数量: {matched_count}")
                         except Exception as e2:
-                            print(f"    [多选筛选] 字符串转换筛选也失败: {e2}")
-                else:
-                    print(f"    [多选筛选] 列表为空，跳过")
+                            pass
         
         return mask
     
@@ -317,8 +302,6 @@ class DataTable:
         if sort_by and sort_by in filtered_df.columns:
             ascending = sort_order == 'ascending' if sort_order else True
             filtered_df = filtered_df.sort_values(by=sort_by, ascending=ascending, na_position='last')
-        elif sort_by:
-            print(f"警告: 排序字段 '{sort_by}' 不在DataFrame列中，可用列: {list(filtered_df.columns)}")
         
         # 计算总数
         total_count = len(filtered_df)
