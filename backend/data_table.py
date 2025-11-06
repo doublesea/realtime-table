@@ -67,12 +67,12 @@ class DataTable:
             raise ValueError(f"列配置中定义的字段在DataFrame中不存在: {missing_in_df}")
     
     def _build_pandas_filter(self, filters: Optional['FilterParams'] = None) -> pd.Series:
-        """将筛选条件转换为pandas布尔索引"""
+        """将筛选条件转换为pandas布尔索引（动态处理任意字段）"""
         # 延迟导入避免循环依赖
         try:
-            from .api import FilterParams, FilterGroup  # type: ignore
+            from .api import FilterParams, FilterGroup, NumberFilter  # type: ignore
         except ImportError:
-            from backend.api import FilterParams, FilterGroup  # type: ignore
+            from backend.api import FilterParams, FilterGroup, NumberFilter  # type: ignore
         
         if not filters:
             return pd.Series([True] * len(self.dataframe))
@@ -80,165 +80,216 @@ class DataTable:
         # 初始化筛选掩码
         mask = pd.Series([True] * len(self.dataframe))
         
-        # ID筛选
-        if filters.id:
-            if isinstance(filters.id, FilterGroup):
-                id_filters_mask = []
-                for id_filter in filters.id.filters:
-                    if id_filter.operator and id_filter.value is not None:
-                        if id_filter.operator == '=':
-                            id_filters_mask.append(self.dataframe['id'] == id_filter.value)
-                        elif id_filter.operator == '>':
-                            id_filters_mask.append(self.dataframe['id'] > id_filter.value)
-                        elif id_filter.operator == '<':
-                            id_filters_mask.append(self.dataframe['id'] < id_filter.value)
-                        elif id_filter.operator == '>=':
-                            id_filters_mask.append(self.dataframe['id'] >= id_filter.value)
-                        elif id_filter.operator == '<=':
-                            id_filters_mask.append(self.dataframe['id'] <= id_filter.value)
+        # 获取筛选参数字典
+        filter_dict = filters.model_dump(exclude_none=True) if hasattr(filters, 'model_dump') else filters.dict(exclude_none=True) if hasattr(filters, 'dict') else {}
+        
+        # 遍历所有筛选字段（包括动态字段和旧字段）
+        for field_name, filter_value in filter_dict.items():
+            
+            # 检查字段是否存在于DataFrame中
+            if field_name not in self.dataframe.columns:
+                print(f"  [筛选] 跳过字段 '{field_name}': 不在DataFrame列中")
+                continue
+            
+            # 查找对应的列配置
+            col_config = next((c for c in self.columns_config if c.prop == field_name), None)
+            if not col_config or not col_config.filterable:
+                print(f"  [筛选] 跳过字段 '{field_name}': 不可筛选")
+                continue
+            
+            print(f"  [筛选] 处理字段 '{field_name}': 类型={col_config.filterType}, 值={filter_value}, 值类型={type(filter_value)}")
+            
+            # 根据筛选类型处理
+            if col_config.filterType == 'number':
+                # 数字类型筛选
+                # 处理 FilterGroup 或 NumberFilter 实例
+                if isinstance(filter_value, FilterGroup):
+                    filters_mask = []
+                    for num_filter in filter_value.filters:
+                        if num_filter.operator and num_filter.value is not None:
+                            op = num_filter.operator
+                            val = num_filter.value
+                            if op == '=':
+                                filters_mask.append(self.dataframe[field_name] == val)
+                            elif op == '>':
+                                filters_mask.append(self.dataframe[field_name] > val)
+                            elif op == '<':
+                                filters_mask.append(self.dataframe[field_name] < val)
+                            elif op == '>=':
+                                filters_mask.append(self.dataframe[field_name] >= val)
+                            elif op == '<=':
+                                filters_mask.append(self.dataframe[field_name] <= val)
+                    
+                    if filters_mask:
+                        logic = filter_value.logic or 'AND'
+                        if logic.upper() == 'OR':
+                            field_mask = filters_mask[0]
+                            for m in filters_mask[1:]:
+                                field_mask |= m
+                        else:
+                            field_mask = filters_mask[0]
+                            for m in filters_mask[1:]:
+                                field_mask &= m
+                        mask &= field_mask
+                elif isinstance(filter_value, NumberFilter):
+                    if filter_value.operator and filter_value.value is not None:
+                        op = filter_value.operator
+                        val = filter_value.value
+                        if op == '=':
+                            mask &= (self.dataframe[field_name] == val)
+                        elif op == '>':
+                            mask &= (self.dataframe[field_name] > val)
+                        elif op == '<':
+                            mask &= (self.dataframe[field_name] < val)
+                        elif op == '>=':
+                            mask &= (self.dataframe[field_name] >= val)
+                        elif op == '<=':
+                            mask &= (self.dataframe[field_name] <= val)
+                # 处理字典格式（从 JSON 解析来的）
+                elif isinstance(filter_value, dict):
+                    if 'filters' in filter_value:
+                        # FilterGroup（多条件）
+                        filter_group = FilterGroup(**filter_value)
+                        filters_mask = []
+                        for num_filter in filter_group.filters:
+                            if num_filter.operator and num_filter.value is not None:
+                                op = num_filter.operator
+                                val = num_filter.value
+                                if op == '=':
+                                    filters_mask.append(self.dataframe[field_name] == val)
+                                elif op == '>':
+                                    filters_mask.append(self.dataframe[field_name] > val)
+                                elif op == '<':
+                                    filters_mask.append(self.dataframe[field_name] < val)
+                                elif op == '>=':
+                                    filters_mask.append(self.dataframe[field_name] >= val)
+                                elif op == '<=':
+                                    filters_mask.append(self.dataframe[field_name] <= val)
+                        
+                        if filters_mask:
+                            logic = filter_group.logic or 'AND'
+                            if logic.upper() == 'OR':
+                                field_mask = filters_mask[0]
+                                for m in filters_mask[1:]:
+                                    field_mask |= m
+                            else:
+                                field_mask = filters_mask[0]
+                                for m in filters_mask[1:]:
+                                    field_mask &= m
+                            mask &= field_mask
+                    elif 'operator' in filter_value or 'value' in filter_value:
+                        # NumberFilter（单条件）
+                        num_filter = NumberFilter(**filter_value)
+                        if num_filter.operator and num_filter.value is not None:
+                            op = num_filter.operator
+                            val = num_filter.value
+                            if op == '=':
+                                mask &= (self.dataframe[field_name] == val)
+                            elif op == '>':
+                                mask &= (self.dataframe[field_name] > val)
+                            elif op == '<':
+                                mask &= (self.dataframe[field_name] < val)
+                            elif op == '>=':
+                                mask &= (self.dataframe[field_name] >= val)
+                            elif op == '<=':
+                                mask &= (self.dataframe[field_name] <= val)
+            
+            elif col_config.filterType == 'text':
+                # 文本筛选
+                if isinstance(filter_value, str) and filter_value:
+                    mask &= self.dataframe[field_name].astype(str).str.contains(filter_value, case=False, na=False)
+            
+            elif col_config.filterType == 'date':
+                # 日期筛选
+                if isinstance(filter_value, str) and filter_value:
+                    mask &= (self.dataframe[field_name].astype(str) == filter_value)
+            
+            elif col_config.filterType in ['multi-select', 'select']:
+                # 多选或单选筛选
+                print(f"    [多选筛选] 字段={field_name}, 值={filter_value}, 值类型={type(filter_value)}")
                 
-                if id_filters_mask:
-                    logic = getattr(filters.id, 'logic', 'AND')
-                    if logic and logic.upper() == 'OR':
-                        id_mask = id_filters_mask[0]
-                        for m in id_filters_mask[1:]:
-                            id_mask |= m
-                        mask &= id_mask
-                    else:
-                        id_mask = id_filters_mask[0]
-                        for m in id_filters_mask[1:]:
-                            id_mask &= m
-                        mask &= id_mask
-            else:
-                if filters.id.operator and filters.id.value is not None:
-                    if filters.id.operator == '=':
-                        mask &= (self.dataframe['id'] == filters.id.value)
-                    elif filters.id.operator == '>':
-                        mask &= (self.dataframe['id'] > filters.id.value)
-                    elif filters.id.operator == '<':
-                        mask &= (self.dataframe['id'] < filters.id.value)
-                    elif filters.id.operator == '>=':
-                        mask &= (self.dataframe['id'] >= filters.id.value)
-                    elif filters.id.operator == '<=':
-                        mask &= (self.dataframe['id'] <= filters.id.value)
-        
-        # 文本筛选
-        if filters.name:
-            mask &= self.dataframe['name'].str.contains(filters.name, case=False, na=False)
-        if filters.email:
-            mask &= self.dataframe['email'].str.contains(filters.email, case=False, na=False)
-        
-        # 部门筛选（支持单选或多选）
-        if filters.department:
-            if isinstance(filters.department, list):
-                mask &= self.dataframe['department'].isin(filters.department)
-            else:
-                mask &= (self.dataframe['department'] == filters.department)
-        
-        # 状态筛选（支持单选或多选）
-        if filters.status:
-            if isinstance(filters.status, list):
-                mask &= self.dataframe['status'].isin(filters.status)
-            else:
-                mask &= (self.dataframe['status'] == filters.status)
-        
-        # 年龄筛选
-        if filters.age:
-            if isinstance(filters.age, FilterGroup):
-                age_filters_mask = []
-                for age_filter in filters.age.filters:
-                    if age_filter.operator and age_filter.value is not None:
-                        if age_filter.operator == '=':
-                            age_filters_mask.append(self.dataframe['age'] == age_filter.value)
-                        elif age_filter.operator == '>':
-                            age_filters_mask.append(self.dataframe['age'] > age_filter.value)
-                        elif age_filter.operator == '<':
-                            age_filters_mask.append(self.dataframe['age'] < age_filter.value)
-                        elif age_filter.operator == '>=':
-                            age_filters_mask.append(self.dataframe['age'] >= age_filter.value)
-                        elif age_filter.operator == '<=':
-                            age_filters_mask.append(self.dataframe['age'] <= age_filter.value)
+                # 统一处理：如果是单个值，转换为列表
+                if isinstance(filter_value, list):
+                    filter_list = filter_value
+                elif filter_value is not None and filter_value != '':
+                    filter_list = [filter_value]
+                else:
+                    print(f"    [多选筛选] 值为空，跳过")
+                    continue
                 
-                if age_filters_mask:
-                    logic = getattr(filters.age, 'logic', 'AND')
-                    if logic and logic.upper() == 'OR':
-                        age_mask = age_filters_mask[0]
-                        for m in age_filters_mask[1:]:
-                            age_mask |= m
-                        mask &= age_mask
-                    else:
-                        age_mask = age_filters_mask[0]
-                        for m in age_filters_mask[1:]:
-                            age_mask &= m
-                        mask &= age_mask
-            else:
-                if filters.age.operator and filters.age.value is not None:
-                    if filters.age.operator == '=':
-                        mask &= (self.dataframe['age'] == filters.age.value)
-                    elif filters.age.operator == '>':
-                        mask &= (self.dataframe['age'] > filters.age.value)
-                    elif filters.age.operator == '<':
-                        mask &= (self.dataframe['age'] < filters.age.value)
-                    elif filters.age.operator == '>=':
-                        mask &= (self.dataframe['age'] >= filters.age.value)
-                    elif filters.age.operator == '<=':
-                        mask &= (self.dataframe['age'] <= filters.age.value)
-        elif filters.ageMin is not None:
-            mask &= (self.dataframe['age'] >= filters.ageMin)
-        elif filters.ageMax is not None:
-            mask &= (self.dataframe['age'] <= filters.ageMax)
-        
-        # 薪资筛选
-        if filters.salary:
-            if isinstance(filters.salary, FilterGroup):
-                salary_filters_mask = []
-                for salary_filter in filters.salary.filters:
-                    if salary_filter.operator and salary_filter.value is not None:
-                        if salary_filter.operator == '=':
-                            salary_filters_mask.append(self.dataframe['salary'] == salary_filter.value)
-                        elif salary_filter.operator == '>':
-                            salary_filters_mask.append(self.dataframe['salary'] > salary_filter.value)
-                        elif salary_filter.operator == '<':
-                            salary_filters_mask.append(self.dataframe['salary'] < salary_filter.value)
-                        elif salary_filter.operator == '>=':
-                            salary_filters_mask.append(self.dataframe['salary'] >= salary_filter.value)
-                        elif salary_filter.operator == '<=':
-                            salary_filters_mask.append(self.dataframe['salary'] <= salary_filter.value)
-                
-                if salary_filters_mask:
-                    logic = getattr(filters.salary, 'logic', 'AND')
-                    if logic and logic.upper() == 'OR':
-                        salary_mask = salary_filters_mask[0]
-                        for m in salary_filters_mask[1:]:
-                            salary_mask |= m
-                        mask &= salary_mask
-                    else:
-                        salary_mask = salary_filters_mask[0]
-                        for m in salary_filters_mask[1:]:
-                            salary_mask &= m
-                        mask &= salary_mask
-            else:
-                if filters.salary.operator and filters.salary.value is not None:
-                    if filters.salary.operator == '=':
-                        mask &= (self.dataframe['salary'] == filters.salary.value)
-                    elif filters.salary.operator == '>':
-                        mask &= (self.dataframe['salary'] > filters.salary.value)
-                    elif filters.salary.operator == '<':
-                        mask &= (self.dataframe['salary'] < filters.salary.value)
-                    elif filters.salary.operator == '>=':
-                        mask &= (self.dataframe['salary'] >= filters.salary.value)
-                    elif filters.salary.operator == '<=':
-                        mask &= (self.dataframe['salary'] <= filters.salary.value)
-        elif filters.salaryMin is not None:
-            mask &= (self.dataframe['salary'] >= filters.salaryMin)
-        elif filters.salaryMax is not None:
-            mask &= (self.dataframe['salary'] <= filters.salaryMax)
-        
-        # 日期筛选
-        if filters.createTime:
-            mask &= (self.dataframe['createTime'] == filters.createTime)
+                if len(filter_list) > 0:
+                    print(f"    [多选筛选] 使用列表筛选: {filter_list}")
+                    # 确保 DataFrame 列的数据类型匹配
+                    try:
+                        mask &= self.dataframe[field_name].isin(filter_list)
+                        matched_count = mask.sum()
+                        print(f"    [多选筛选] 筛选后匹配数量: {matched_count}")
+                    except Exception as e:
+                        print(f"    [多选筛选] 筛选出错: {e}")
+                        # 尝试转换为字符串后再筛选
+                        try:
+                            mask &= self.dataframe[field_name].astype(str).isin([str(v) for v in filter_list])
+                            matched_count = mask.sum()
+                            print(f"    [多选筛选] 使用字符串转换后，匹配数量: {matched_count}")
+                        except Exception as e2:
+                            print(f"    [多选筛选] 字符串转换筛选也失败: {e2}")
+                else:
+                    print(f"    [多选筛选] 列表为空，跳过")
         
         return mask
+    
+    def _apply_number_filter(self, mask: pd.Series, field_name: str, filter_value: Any):
+        """应用数字筛选条件（辅助方法）"""
+        try:
+            from .api import FilterGroup, NumberFilter
+        except ImportError:
+            from backend.api import FilterGroup, NumberFilter
+        
+        if field_name not in self.dataframe.columns:
+            return
+        
+        if isinstance(filter_value, FilterGroup):
+            filters_mask = []
+            for num_filter in filter_value.filters:
+                if num_filter.operator and num_filter.value is not None:
+                    op = num_filter.operator
+                    val = num_filter.value
+                    if op == '=':
+                        filters_mask.append(self.dataframe[field_name] == val)
+                    elif op == '>':
+                        filters_mask.append(self.dataframe[field_name] > val)
+                    elif op == '<':
+                        filters_mask.append(self.dataframe[field_name] < val)
+                    elif op == '>=':
+                        filters_mask.append(self.dataframe[field_name] >= val)
+                    elif op == '<=':
+                        filters_mask.append(self.dataframe[field_name] <= val)
+            
+            if filters_mask:
+                logic = filter_value.logic or 'AND'
+                if logic.upper() == 'OR':
+                    field_mask = filters_mask[0]
+                    for m in filters_mask[1:]:
+                        field_mask |= m
+                else:
+                    field_mask = filters_mask[0]
+                    for m in filters_mask[1:]:
+                        field_mask &= m
+                mask &= field_mask
+        elif isinstance(filter_value, NumberFilter):
+            if filter_value.operator and filter_value.value is not None:
+                op = filter_value.operator
+                val = filter_value.value
+                if op == '=':
+                    mask &= (self.dataframe[field_name] == val)
+                elif op == '>':
+                    mask &= (self.dataframe[field_name] > val)
+                elif op == '<':
+                    mask &= (self.dataframe[field_name] < val)
+                elif op == '>=':
+                    mask &= (self.dataframe[field_name] >= val)
+                elif op == '<=':
+                    mask &= (self.dataframe[field_name] <= val)
     
     def get_list(self, 
                  filters: Optional['FilterParams'] = None,
@@ -405,25 +456,26 @@ def generate_columns_config_from_dataframe(df: pd.DataFrame) -> List[ColumnConfi
         if 'int' in col_type or 'float' in col_type:
             column_type = 'number'
             filter_type = 'number'
-        elif 'datetime' in col_type or col == 'createTime':
+        elif 'datetime' in col_type or 'date' in col.lower():
+            # 自动识别日期字段（datetime类型或字段名包含date）
             column_type = 'date'
             filter_type = 'date'
         elif col == 'id':
+            # ID字段固定左侧，使用数字筛选
             filter_type = 'number'
             fixed = 'left'
-        elif col in ['department', 'status']:
-            filter_type = 'multi-select'
-            # 获取唯一值列表作为选项
-            unique_values = df[col].unique().tolist()
-            if len(unique_values) <= 100:  # 如果唯一值少于100个，提供下拉选项
-                options = [str(v) for v in unique_values]
+        else:
+            # 对于字符串类型，检查唯一值数量
+            if 'object' in col_type or 'string' in col_type:
+                unique_values = df[col].unique().tolist()
+                if len(unique_values) <= 100:  # 如果唯一值少于100个，提供下拉选项
+                    filter_type = 'multi-select'
+                    options = [str(v) for v in unique_values]
+                else:
+                    # 唯一值太多，使用文本筛选
+                    filter_type = 'text'
             else:
-                filter_type = 'text'  # 唯一值太多，改用文本筛选
-        elif col in ['name', 'email']:
-            filter_type = 'text'
-        elif col in ['age', 'salary']:
-            column_type = 'number'
-            filter_type = 'number'
+                filter_type = 'text'
         
         columns_config.append(ColumnConfig(
             prop=col,

@@ -26,58 +26,84 @@ TOTAL_RECORDS = 100000
 
 
 def init_data() -> pd.DataFrame:
-    """初始化数据，生成指定数量的数据并保存到DataFrame（优化版本）"""
+    """初始化数据，生成指定数量的数据并保存到DataFrame（优化版本）
+    测试完全不同的字段组合，验证前端动态字段显示功能
+    """
     print(f"开始生成 {TOTAL_RECORDS} 条数据...")
     start_time = datetime.now()
-    departments = ['技术部', '销售部', '市场部', '人事部', '财务部']
-    statuses = ['在职', '离职', '试用期']
+    
+    # 全新的字段定义 - 订单/交易数据
+    order_statuses = ['待付款', '已付款', '已发货', '已完成', '已取消', '退款中']
+    payment_methods = ['支付宝', '微信支付', '银行卡', '现金', 'PayPal']
+    cities = ['北京', '上海', '广州', '深圳', '杭州', '成都', '武汉', '西安', '南京', '重庆']
+    merchants = ['商家A', '商家B', '商家C', '商家D', '商家E', '商家F', '商家G']
     
     # 使用向量化操作高效生成数据
     ids = np.arange(1, TOTAL_RECORDS + 1, dtype=np.int64)
     
     # 使用numpy的随机数生成（基于ID作为种子，确保可重复）
-    # 为了确保可重复性，我们使用ID作为随机种子
     np.random.seed(42)  # 固定种子，保证整体可重复
     
-    # 生成年龄（18-68）
-    ages = np.random.randint(18, 69, size=TOTAL_RECORDS)
+    # 生成订单号
+    order_numbers = [f"ORD{str(id).zfill(10)}" for id in ids]
     
-    # 生成薪资（10000-60000）
-    salaries = np.random.randint(10000, 60001, size=TOTAL_RECORDS)
+    # 生成订单状态（使用ID作为索引确保可重复）
+    status_indices = (ids - 1) % len(order_statuses)
+    status_values = np.array(order_statuses)[status_indices]
     
-    # 生成部门（使用ID作为索引确保可重复）
-    dept_indices = (ids - 1) % len(departments)
-    dept_values = np.array(departments)[dept_indices]
+    # 生成支付方式（使用ID作为索引确保可重复）
+    payment_indices = (ids * 3) % len(payment_methods)
+    payment_values = np.array(payment_methods)[payment_indices]
     
-    # 生成状态（使用ID作为索引确保可重复）
-    status_indices = (ids * 3) % len(statuses)
-    status_values = np.array(statuses)[status_indices]
+    # 生成订单金额（10-10000，保留两位小数）
+    order_amounts = np.round(np.random.uniform(10, 10000, size=TOTAL_RECORDS), 2)
     
-    # 生成日期偏移（0-365天）
-    day_offsets = np.random.randint(0, 366, size=TOTAL_RECORDS)
+    # 生成商品数量（1-100）
+    item_counts = np.random.randint(1, 101, size=TOTAL_RECORDS)
+    
+    # 生成配送费用（0-50，保留一位小数）
+    shipping_costs = np.round(np.random.uniform(0, 50, size=TOTAL_RECORDS), 1)
+    
+    # 生成城市（使用ID作为索引确保可重复）
+    city_indices = (ids * 7) % len(cities)
+    city_values = np.array(cities)[city_indices]
+    
+    # 生成商家（使用ID作为索引确保可重复）
+    merchant_indices = (ids * 11) % len(merchants)
+    merchant_values = np.array(merchants)[merchant_indices]
+    
+    # 生成用户ID（1000-99999）
+    user_ids = np.random.randint(1000, 100000, size=TOTAL_RECORDS)
+    
+    # 生成折扣率（0-0.5，保留两位小数）
+    discounts = np.round(np.random.uniform(0, 0.5, size=TOTAL_RECORDS), 2)
+    
+    # 生成日期偏移（0-730天，即2年内）
+    day_offsets = np.random.randint(0, 731, size=TOTAL_RECORDS)
     base_date = datetime.now()
-    # 使用列表推导式生成日期字符串（这部分无法完全向量化，但已经很快）
-    create_times = [(base_date - timedelta(days=int(offset))).strftime('%Y-%m-%d') for offset in day_offsets]
-    
-    # 生成姓名和邮箱（使用列表推导式，已经很高效）
-    names = [f"用户_{str(id).zfill(8)}" for id in ids]
-    emails = [f"user{id}@example.com" for id in ids]
+    # 使用列表推导式生成日期字符串
+    order_dates = [(base_date - timedelta(days=int(offset))).strftime('%Y-%m-%d') for offset in day_offsets]
     
     # 创建DataFrame（使用字典方式，更高效）
     data_df = pd.DataFrame({
         'id': ids,
-        'name': names,
-        'email': emails,
-        'age': ages,
-        'department': dept_values,
-        'salary': salaries,
-        'status': status_values,
-        'createTime': create_times
+        'order_number': order_numbers,
+        'order_status': status_values,
+        'payment_method': payment_values,
+        'order_amount': order_amounts,
+        'item_count': item_counts,
+        'shipping_cost': shipping_costs,
+        'city': city_values,
+        'merchant': merchant_values,
+        'user_id': user_ids,
+        'discount': discounts,
+        'order_date': order_dates
     })
     
     elapsed = (datetime.now() - start_time).total_seconds()
     print(f"数据生成完成，共 {len(data_df)} 条记录，总耗时: {elapsed:.2f}秒")
     print(f"数据预览:\n{data_df.head()}")
+    print(f"字段列表: {list(data_df.columns)}")
     
     return data_df
 
@@ -156,4 +182,28 @@ async def startup_event():
 
 if __name__ == "__main__":
     import uvicorn
+    import socket
+    
+    # 检查端口是否可用
+    def check_port(port: int) -> bool:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(1)
+                result = s.connect_ex(('localhost', port))
+                return result != 0
+        except Exception:
+            return True
+    
+    if not check_port(3001):
+        print("=" * 60)
+        print("⚠ 错误: 端口 3001 已被占用")
+        print("   请先终止占用端口的进程，或使用其他端口")
+        print("   如果已通过 nicegui_vue_embed.py 启动，请直接使用该服务")
+        print("=" * 60)
+        exit(1)
+    
+    print("=" * 60)
+    print("直接启动 FastAPI 服务（不推荐）")
+    print("建议使用 nicegui_vue_embed.py 启动完整应用")
+    print("=" * 60)
     uvicorn.run(app, host="0.0.0.0", port=3001)

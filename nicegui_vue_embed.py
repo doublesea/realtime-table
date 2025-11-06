@@ -24,6 +24,18 @@ _api_server_running = False
 _api_server_thread = None
 
 
+def check_port_available(port: int) -> bool:
+    """检查端口是否可用"""
+    import socket
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(1)
+            result = s.connect_ex(('localhost', port))
+            return result != 0  # 0 表示端口被占用
+    except Exception:
+        return True
+
+
 def run_fastapi_server():
     """在后台线程中运行FastAPI服务器"""
     global _api_server_running
@@ -31,8 +43,24 @@ def run_fastapi_server():
         print("=" * 60)
         print("启动FastAPI后端服务...")
         print("=" * 60)
+        
+        # 检查端口是否已被占用
+        if not check_port_available(3001):
+            print("⚠ 警告: 端口 3001 已被占用，可能已有服务在运行")
+            print("   如果已有 FastAPI 服务在运行，请直接使用该服务")
+            print("   或者终止占用端口的进程后重试")
+            _api_server_running = False
+            return
+        
         uvicorn.run(fastapi_app, host="0.0.0.0", port=3001, log_level="info")
         _api_server_running = True
+    except OSError as e:
+        if "10048" in str(e) or "Address already in use" in str(e):
+            print(f"⚠ 端口 3001 已被占用，可能已有 FastAPI 服务在运行")
+            print(f"   请检查是否已有服务在运行，或使用其他端口")
+        else:
+            print(f"FastAPI服务启动失败: {e}")
+        _api_server_running = False
     except Exception as e:
         print(f"FastAPI服务启动失败: {e}")
         _api_server_running = False
@@ -167,12 +195,24 @@ if __name__ in {'__main__', '__mp_main__'}:
     
     # 2. 在后台线程启动FastAPI服务
     print("\n[2/3] 启动FastAPI后端服务...")
-    _api_server_thread = threading.Thread(target=run_fastapi_server, daemon=True)
-    _api_server_thread.start()
     
-    # 等待一下确保FastAPI服务启动
-    time.sleep(2)
-    print("✓ FastAPI服务已启动")
+    # 检查是否已有服务在运行
+    if not check_port_available(3001):
+        print("⚠ 检测到端口 3001 已被占用")
+        print("   假设已有 FastAPI 服务在运行，跳过启动")
+        print("   如果服务未正常运行，请先终止占用端口的进程")
+    else:
+        _api_server_thread = threading.Thread(target=run_fastapi_server, daemon=True)
+        _api_server_thread.start()
+        
+        # 等待一下确保FastAPI服务启动
+        time.sleep(2)
+        
+        # 再次检查服务是否成功启动
+        if check_port_available(3001):
+            print("⚠ 警告: FastAPI服务可能启动失败，请检查日志")
+        else:
+            print("✓ FastAPI服务已启动")
     
     # 3. 配置NiceGUI静态文件和路由
     print("\n[3/3] 配置NiceGUI服务...")

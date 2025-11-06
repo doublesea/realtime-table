@@ -49,7 +49,7 @@ class TableData(BaseModel):
 
 class NumberFilter(BaseModel):
     operator: Optional[str] = None  # '=', '>', '<', '>=', '<='
-    value: Optional[int] = None
+    value: Optional[Union[int, float]] = None  # 支持整数和浮点数
 
 
 class FilterGroup(BaseModel):
@@ -58,35 +58,33 @@ class FilterGroup(BaseModel):
 
 
 class FilterParams(BaseModel):
+    """动态筛选参数，支持任意字段名"""
+    model_config = {"extra": "allow"}  # 允许额外字段
+    
+    # 保留向后兼容的字段（可选）
     id: Optional[Union[NumberFilter, FilterGroup]] = None
     name: Optional[str] = None
     email: Optional[str] = None
-    department: Optional[Union[str, List[str]]] = None  # 支持单选或多选
-    status: Optional[Union[str, List[str]]] = None  # 支持单选或多选
+    department: Optional[Union[str, List[str]]] = None
+    status: Optional[Union[str, List[str]]] = None
     age: Optional[Union[NumberFilter, FilterGroup]] = None
-    ageMin: Optional[int] = None  # 向后兼容
-    ageMax: Optional[int] = None  # 向后兼容
     salary: Optional[Union[NumberFilter, FilterGroup]] = None
-    salaryMin: Optional[int] = None  # 向后兼容
-    salaryMax: Optional[int] = None  # 向后兼容
     createTime: Optional[str] = None
     
-    # Pydantic v2 的模型验证器，用于正确解析 Union 类型
-    @field_validator('age', 'salary', 'id', mode='before')
     @classmethod
-    def parse_union_type(cls, v):
-        """解析 Union[NumberFilter, FilterGroup] 类型"""
-        if v is None:
+    def parse_dynamic_filter(cls, field_name: str, value: Any) -> Any:
+        """动态解析筛选值，根据值的类型判断是 NumberFilter、FilterGroup 还是普通值"""
+        if value is None:
             return None
-        if isinstance(v, dict):
+        if isinstance(value, dict):
             # 如果有 filters 键，说明是 FilterGroup
-            if 'filters' in v:
-                return FilterGroup(**v)
+            if 'filters' in value:
+                return FilterGroup(**value)
             # 如果有 operator 或 value，说明是 NumberFilter
-            elif 'operator' in v or 'value' in v:
-                return NumberFilter(**v)
-        # 如果已经是实例，直接返回
-        return v
+            elif 'operator' in value or 'value' in value:
+                return NumberFilter(**value)
+        # 其他情况直接返回
+        return value
 
 
 class ListRequest(BaseModel):
@@ -154,16 +152,19 @@ async def get_data_list(request: ListRequest):
         if request.filters:
             print(f"接收到筛选条件: {request.filters}")
             print(f"筛选条件类型: {type(request.filters)}")
-            if hasattr(request.filters, 'age') and request.filters.age:
-                print(f"年龄筛选对象: {request.filters.age}")
-                print(f"年龄筛选对象类型: {type(request.filters.age)}")
-                print(f"是否为FilterGroup: {isinstance(request.filters.age, FilterGroup)}")
-                if hasattr(request.filters.age, 'logic'):
-                    print(f"年龄筛选逻辑: {request.filters.age.logic}")
-                if hasattr(request.filters.age, 'filters'):
-                    print(f"年龄筛选条件数: {len(request.filters.age.filters)}")
-                    for i, f in enumerate(request.filters.age.filters):
-                        print(f"  条件{i+1}: {f}")
+            # 打印所有筛选字段
+            if hasattr(request.filters, 'model_dump'):
+                filter_dict = request.filters.model_dump(exclude_none=True)
+            elif hasattr(request.filters, 'dict'):
+                filter_dict = request.filters.dict(exclude_none=True)
+            else:
+                filter_dict = {}
+            
+            print(f"筛选字段列表: {list(filter_dict.keys())}")
+            for field_name, field_value in filter_dict.items():
+                print(f"  字段 '{field_name}': 值={field_value}, 类型={type(field_value)}")
+                if isinstance(field_value, list):
+                    print(f"    列表长度: {len(field_value)}, 内容: {field_value}")
         
         # 打印排序参数
         print(f"排序参数 - sortBy: {request.sortBy}, sortOrder: {request.sortOrder}")
