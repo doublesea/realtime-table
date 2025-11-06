@@ -1,24 +1,42 @@
 """
 NiceGUI 嵌入 Vue 应用
 将已构建的 Vue 应用嵌入到 NiceGUI 页面中
+统一入口：启动后端服务（FastAPI）和前端服务（NiceGUI）
 """
 from nicegui import ui
 from pathlib import Path
 import os
-from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+import threading
+import time
 import uvicorn
-from backend.main import app as fastapi_app, init_data
+from fastapi.staticfiles import StaticFiles
 
-# 导入 data_df，可能是 None（延迟初始化）
-from backend.main import data_df
-
-# 数据初始化将在主程序启动时进行
+# 导入后端API应用和数据初始化函数
+from backend.api import app as fastapi_app, is_data_initialized, get_data_table, set_data_table, set_data_initialized
+from backend.main import init_data
+from backend.data_table import DataTable, generate_columns_config_from_dataframe
 
 # 配置静态文件服务路径
 dist_path = Path(__file__).parent / 'dist'
-# 静态文件挂载将在 NiceGUI app 启动时进行
+
+# FastAPI服务运行标志
+_api_server_running = False
+_api_server_thread = None
+
+
+def run_fastapi_server():
+    """在后台线程中运行FastAPI服务器"""
+    global _api_server_running
+    try:
+        print("=" * 60)
+        print("启动FastAPI后端服务...")
+        print("=" * 60)
+        uvicorn.run(fastapi_app, host="0.0.0.0", port=3001, log_level="info")
+        _api_server_running = True
+    except Exception as e:
+        print(f"FastAPI服务启动失败: {e}")
+        _api_server_running = False
+
 
 @ui.page('/data-table')
 def data_table_page():
@@ -63,6 +81,7 @@ def data_table_page():
         ></iframe>
     ''', sanitize=False)
 
+
 @ui.page('/')
 def main_page():
     """主页面"""
@@ -76,6 +95,22 @@ def main_page():
         
         with ui.row().classes('gap-4'):
             ui.link('进入数据表格', '/data-table').classes('text-lg')
+        
+        # 显示服务状态
+        with ui.card().classes('w-full max-w-2xl mt-4'):
+            ui.label('服务状态').classes('text-h6 mb-4')
+            with ui.column().classes('gap-2'):
+                data_table = get_data_table()
+                if data_table:
+                    ui.label(f'✓ 后端服务运行中 (端口: 3001)').classes('text-green-600')
+                    ui.label(f'✓ 数据已加载，共 {len(data_table.dataframe)} 条记录').classes('text-green-600')
+                else:
+                    ui.label('⚠ 后端服务正在初始化...').classes('text-yellow-600')
+                
+                if dist_path.exists():
+                    ui.label('✓ Vue 应用已构建').classes('text-green-600')
+                else:
+                    ui.label('⚠ Vue 应用未构建').classes('text-yellow-600')
         
         with ui.card().classes('w-full max-w-2xl mt-8'):
             ui.label('功能特性').classes('text-h6 mb-4')
@@ -96,69 +131,128 @@ def main_page():
                 ui.label('• 后端：FastAPI + Pandas + NumPy')
                 ui.label('• 框架：NiceGUI（嵌入 Vue 应用）')
                 ui.label('• 数据存储：Pandas DataFrame（内存）')
+                ui.label('• API服务：http://localhost:3001')
+                ui.label('• 前端服务：http://localhost:8080')
+
 
 if __name__ in {'__main__', '__mp_main__'}:
-    # 确保数据已初始化
-    # 由于 init_data() 会修改全局变量，我们需要重新导入来获取更新后的值
-    if data_df is None:
-        print("正在初始化数据...")
-        init_data()
-        # 等待一下确保数据已经写入全局变量
-        import time
-        time.sleep(0.5)
-        # 重新导入以获取最新的 data_df
-        from backend.main import data_df as updated_data_df
-        if updated_data_df is None:
-            raise RuntimeError("数据初始化失败，请检查后端服务")
-        # 使用更新后的 data_df
-        data_df = updated_data_df
+    print("=" * 60)
+    print("大数据量表格系统 - 统一入口启动")
+    print("=" * 60)
     
-    # 验证数据已初始化
-    if data_df is None:
-        raise RuntimeError("数据未初始化，无法启动应用")
+    # 1. 先初始化数据（在主线程中，确保完成）
+    print("\n[1/3] 初始化数据...")
+    try:
+        data_df = init_data()
+        print("✓ 数据生成完成")
+        
+        # 创建列配置
+        print("创建列配置...")
+        columns_config = generate_columns_config_from_dataframe(data_df)
+        
+        # 创建DataTable实例
+        print("创建DataTable实例...")
+        data_table = DataTable(dataframe=data_df, columns_config=columns_config)
+        
+        # 设置到API模块
+        set_data_table(data_table)
+        set_data_initialized(True)
+        
+        print(f"✓ DataTable实例创建完成，共 {len(data_df)} 条记录")
+    except Exception as e:
+        import traceback
+        print(f"数据初始化失败: {e}")
+        traceback.print_exc()
+        raise
     
-    print(f"数据初始化成功，共 {len(data_df)} 条记录")
-    print(f"Vue 应用路径: {dist_path}")
-    if dist_path.exists():
-        file_count = len(list(dist_path.rglob('*')))
-        print(f"✓ Vue 应用已构建，包含 {file_count} 个文件")
-    else:
-        print("⚠ Vue 应用未构建，请运行 'npm run build' 构建 Vue 应用")
+    # 2. 在后台线程启动FastAPI服务
+    print("\n[2/3] 启动FastAPI后端服务...")
+    _api_server_thread = threading.Thread(target=run_fastapi_server, daemon=True)
+    _api_server_thread.start()
     
-    # 将 FastAPI 的路由集成到 NiceGUI 的 FastAPI 实例
+    # 等待一下确保FastAPI服务启动
+    time.sleep(2)
+    print("✓ FastAPI服务已启动")
+    
+    # 3. 配置NiceGUI静态文件和路由
+    print("\n[3/3] 配置NiceGUI服务...")
     from nicegui import app as nicegui_app
     
     # 挂载静态文件（如果 dist 目录存在）
     if dist_path.exists():
         nicegui_app.mount("/static", StaticFiles(directory=str(dist_path), html=True), name="static")
+        file_count = len(list(dist_path.rglob('*')))
+        print(f"✓ Vue 应用已挂载，包含 {file_count} 个文件")
+    else:
+        print("⚠ Vue 应用未构建，请运行 'npm run build' 构建 Vue 应用")
     
-    # 将 FastAPI 应用的路由添加到 NiceGUI 的 FastAPI 实例
-    # NiceGUI 的 app 已经是 FastAPI 实例，可以直接添加路由
-    for route in fastapi_app.routes:
-        # 跳过已经存在的路由（避免重复）
-        if any(r.path == route.path and set(r.methods or ['GET']) == set(route.methods or ['GET']) 
-               for r in nicegui_app.routes if hasattr(r, 'path')):
-            continue
-        
-        # 添加路由
-        if hasattr(route, 'methods'):
-            nicegui_app.add_api_route(
-                route.path,
-                route.endpoint,
-                methods=list(route.methods),
-                name=getattr(route, 'name', None)
+    # 添加API代理：将 /api/* 请求转发到 FastAPI 服务
+    import httpx
+    from fastapi import Request
+    from fastapi.responses import Response
+    
+    @nicegui_app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+    async def proxy_api(request: Request, path: str):
+        """代理API请求到FastAPI后端服务"""
+        try:
+            # 构建目标URL
+            url = f"http://localhost:3001/api/{path}"
+            
+            # 获取请求参数
+            params = dict(request.query_params)
+            
+            # 获取请求体
+            body = None
+            if request.method in ["POST", "PUT", "PATCH"]:
+                body = await request.body()
+            
+            # 获取请求头（排除host和content-length）
+            headers = dict(request.headers)
+            headers.pop("host", None)
+            headers.pop("content-length", None)
+            
+            # 发送请求到FastAPI服务
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.request(
+                    method=request.method,
+                    url=url,
+                    params=params,
+                    content=body,
+                    headers=headers
+                )
+                
+                # 返回响应
+                return Response(
+                    content=response.content,
+                    status_code=response.status_code,
+                    headers=dict(response.headers)
+                )
+        except Exception as e:
+            print(f"API代理错误: {e}")
+            return Response(
+                content=f'{{"error": "代理请求失败: {str(e)}"}}',
+                status_code=500,
+                media_type="application/json"
             )
-        else:
-            nicegui_app.add_api_route(
-                route.path,
-                route.endpoint,
-                methods=['GET'],
-                name=getattr(route, 'name', None)
-            )
     
-    # 添加中间件（CORS 已经在 backend/main.py 中配置，但需要确保 NiceGUI 也支持）
-    # 注意：NiceGUI 可能已经配置了 CORS，这里主要是确保 API 路由可以访问
+    @nicegui_app.get("/api/health")
+    async def health_check():
+        """健康检查端点"""
+        return {
+            "status": "ok",
+            "backend": "http://localhost:3001",
+            "data_initialized": is_data_initialized()
+        }
     
-    # 运行应用
-    ui.run(title='大数据量表格系统', port=8080, show=False)
-
+    print("=" * 60)
+    print("启动完成！")
+    print("=" * 60)
+    print("服务地址：")
+    print("  - NiceGUI主页: http://localhost:8080/")
+    print("  - 数据表格: http://localhost:8080/data-table")
+    print("  - FastAPI后端: http://localhost:3001")
+    print("  - API文档: http://localhost:3001/docs")
+    print("=" * 60)
+    
+    # 4. 启动NiceGUI
+    ui.run(title='大数据量表格系统', port=8080, show=True)

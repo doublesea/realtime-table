@@ -71,3 +71,24 @@ export interface RowDetailItem {
 }
 
 export type RowDetail = RowDetailItem[]  // 详情数据是一个列表
+
+// 列配置类型
+export type ColumnType = 'string' | 'number' | 'date' | 'boolean'
+export type FilterType = 'text' | 'number' | 'select' | 'multi-select' | 'date' | 'none'
+
+export interface ColumnConfig {
+  prop: string  // 字段名
+  label: string  // 列标题
+  type: ColumnType  // 数据类型
+  sortable?: boolean  // 是否可排序
+  filterable?: boolean  // 是否可筛选
+  filterType?: FilterType  // 筛选类型
+  minWidth?: number  // 最小宽度
+  width?: number  // 固定宽度
+  fixed?: 'left' | 'right' | boolean  // 是否固定
+  options?: string[]  // 下拉选项（用于select类型）
+}
+
+export interface ColumnsConfigResponse {
+  columns: ColumnConfig[]
+}

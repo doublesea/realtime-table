@@ -618,7 +618,7 @@
 import { ref, reactive, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search, Refresh, Delete, Setting, ArrowDown, ArrowUp, Sort, Filter } from '@element-plus/icons-vue'
-import { TableData, FilterParams, NumberFilter, RowDetail } from '../types'
+import { TableData, FilterParams, NumberFilter, RowDetail, ColumnConfig } from '../types'
 import { dataApi } from '../api/data'
 import type { ElTable } from 'element-plus'
 
@@ -637,29 +637,18 @@ const rowDetails = reactive<Record<number, RowDetail>>({})
 const rowDetailsLoading = reactive<Record<number, boolean>>({})
 const rowDetailsError = reactive<Record<number, string>>({})
 
-// 列配置
-const columnConfig = [
-  { prop: 'id', label: 'ID' },
-  { prop: 'name', label: '姓名' },
-  { prop: 'email', label: '邮箱' },
-  { prop: 'age', label: '年龄' },
-  { prop: 'department', label: '部门' },
-  { prop: 'salary', label: '薪资' },
-  { prop: 'status', label: '状态' },
-  { prop: 'createTime', label: '创建时间' }
-]
+// 列配置（从后端获取）
+const columnConfig = ref<ColumnConfig[]>([])
 
-// 列显示状态（默认全部显示）
-const columnVisible = reactive<Record<string, boolean>>({
-  id: true,
-  name: true,
-  email: true,
-  age: true,
-  department: true,
-  salary: true,
-  status: true,
-  createTime: true
-})
+// 列显示状态（动态生成）
+const columnVisible = reactive<Record<string, boolean>>({})
+
+// 初始化列显示状态
+const initColumnVisible = (columns: ColumnConfig[]) => {
+  columns.forEach(col => {
+    columnVisible[col.prop] = true  // 默认全部显示
+  })
+}
 
 const filterForm = reactive({
   // ID筛选
@@ -708,6 +697,37 @@ const sortInfo = reactive({
 })
 
 // 加载筛选选项
+// 默认列配置（当后端加载失败时使用）
+const defaultColumns: ColumnConfig[] = [
+  { prop: 'id', label: 'ID', type: 'number', sortable: true, filterable: true, filterType: 'number', minWidth: 120 },
+  { prop: 'name', label: '姓名', type: 'string', sortable: true, filterable: true, filterType: 'text', minWidth: 120 },
+  { prop: 'email', label: '邮箱', type: 'string', sortable: true, filterable: true, filterType: 'text', minWidth: 180 },
+  { prop: 'age', label: '年龄', type: 'number', sortable: true, filterable: true, filterType: 'number', minWidth: 120 },
+  { prop: 'department', label: '部门', type: 'string', sortable: true, filterable: true, filterType: 'multi-select', minWidth: 120 },
+  { prop: 'salary', label: '薪资', type: 'number', sortable: true, filterable: true, filterType: 'number', minWidth: 120 },
+  { prop: 'status', label: '状态', type: 'string', sortable: true, filterable: true, filterType: 'multi-select', minWidth: 120 },
+  { prop: 'createTime', label: '创建时间', type: 'date', sortable: true, filterable: true, filterType: 'date', minWidth: 120 }
+]
+
+// 加载列配置
+const loadColumnsConfig = async () => {
+  try {
+    const config = await dataApi.getColumnsConfig()
+    columnConfig.value = config.columns
+    initColumnVisible(config.columns)
+    initFilterForm(config.columns)
+    console.log('列配置加载成功:', columnConfig.value)
+  } catch (error) {
+    console.error('加载列配置失败:', error)
+    ElMessage.error('加载列配置失败，使用默认配置')
+    // 使用默认列配置
+    columnConfig.value = defaultColumns
+    initColumnVisible(defaultColumns)
+    initFilterForm(defaultColumns)
+    console.log('使用默认列配置:', columnConfig.value)
+  }
+}
+
 const loadFilterOptions = async () => {
   try {
     const options = await dataApi.getFilters()
@@ -1013,6 +1033,37 @@ const getDetailColumns = (detailData: RowDetail) => {
   return columns
 }
 
+// 动态初始化filterForm结构
+const initFilterForm = (columns: ColumnConfig[]) => {
+  // 清空现有的filterForm
+  Object.keys(filterForm).forEach(key => {
+    delete (filterForm as any)[key]
+  })
+  
+  // 根据列配置动态初始化filterForm
+  columns.forEach(col => {
+    if (!col.filterable) return
+    
+    switch (col.filterType) {
+      case 'number':
+        // 数字类型：支持操作符和值
+        ;(filterForm as any)[`${col.prop}Operator`] = undefined
+        ;(filterForm as any)[`${col.prop}Value`] = undefined
+        break
+      case 'multi-select':
+      case 'select':
+        // 选择类型：数组或字符串
+        ;(filterForm as any)[col.prop] = col.filterType === 'multi-select' ? [] : undefined
+        break
+      case 'text':
+      case 'date':
+        // 文本或日期类型：字符串
+        ;(filterForm as any)[col.prop] = undefined
+        break
+    }
+  })
+}
+
 // 处理筛选变化
 const handleFilterChange = () => {
   // 保持选中行在当前页可见
@@ -1210,9 +1261,23 @@ const hasActiveFilter = (prop: string) => {
 }
 
 // 初始化
-onMounted(() => {
-  loadFilterOptions()
-  loadData()
+onMounted(async () => {
+  try {
+    await loadColumnsConfig()  // 先加载列配置，确保列可见性已初始化
+    loadFilterOptions()
+    // 确保列配置加载完成后再加载数据
+    await loadData()
+    console.log('初始化完成，数据已加载')
+  } catch (error) {
+    console.error('初始化失败:', error)
+    // 即使列配置加载失败，也尝试加载数据（使用默认配置）
+    if (columnConfig.value.length === 0) {
+      columnConfig.value = defaultColumns
+      initColumnVisible(defaultColumns)
+      initFilterForm(defaultColumns)
+    }
+    await loadData()
+  }
 })
 </script>
 
