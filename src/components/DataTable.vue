@@ -1,47 +1,27 @@
 <template>
-  <el-card class="table-card" :body-style="{ padding: '16px' }">
+  <el-card class="table-card" :body-style="{ padding: '16px', display: 'flex', flexDirection: 'column', height: '100%' }">
     <!-- 工具栏 -->
-    <div style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+    <div class="toolbar" style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
       <div>
-        <el-dropdown trigger="click" @command="() => {}">
-          <el-button :icon="Setting" size="small">
-            列设置
-            <el-icon class="el-icon--right"><ArrowDown /></el-icon>
-          </el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item
-                v-for="col in columnConfig"
-                :key="col.prop"
-                :divided="col.prop === 'id'"
-                @click.stop
-              >
-                <el-checkbox
-                  v-model="columnVisible[col.prop]"
-                  @change="() => handleColumnToggle(col.prop)"
-                  @click.stop
-                >
-                  {{ col.label }}
-                </el-checkbox>
-              </el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+        <el-button :icon="Setting" size="small" @click="showColumnSettings = true">
+          列设置
+        </el-button>
       </div>
       <div>
         <el-button :icon="Refresh" size="small" @click="handleReset">重置所有筛选</el-button>
       </div>
     </div>
 
-    <!-- 数据表格 -->
-    <el-table
-      ref="tableRef"
-      :data="tableData"
-      v-loading="loading"
-      stripe
-      border
-      height="calc(100vh - 250px)"
-      style="width: 100%; table-layout: auto"
+    <!-- 数据表格容器 -->
+    <div class="table-container">
+      <el-table
+        ref="tableRef"
+        :data="tableData"
+        v-loading="loading"
+        stripe
+        border
+        height="100%"
+        style="width: 100%; table-layout: fixed"
       @sort-change="handleSortChange"
       @row-click="handleRowClick"
       @expand-change="handleExpandChange"
@@ -80,32 +60,25 @@
           <span style="font-size: 14px; font-weight: 600;">+</span>
         </template>
       </el-table-column>
-      <!-- 动态生成列 -->
-      <template v-for="col in columnConfig" :key="col.prop">
+      <!-- 动态生成列（使用排序后的列顺序） -->
+      <template v-for="col in orderedColumns" :key="col.prop">
         <el-table-column
           v-if="columnVisible[col.prop]"
           :prop="col.prop"
           :label="col.label"
           :min-width="col.minWidth || 120"
+          :width="getColumnWidth(col)"
           :fixed="col.fixed"
           :sortable="col.sortable ? 'custom' : false"
+          :show-overflow-tooltip="true"
         >
         <template #header>
           <div class="column-header">
             <div class="header-title-row">
-              <el-icon 
-                v-if="col.sortable"
-                class="sort-icon" 
-                :style="{ color: getSortIconColor(col.prop) }"
-                @click.stop="handleHeaderSortClick(col.prop)"
-              >
-                <component :is="getSortIcon(col.prop)" />
-              </el-icon>
-              <span>{{ col.label }}</span>
               <el-popover
                 v-if="col.filterable && col.filterType !== 'none'"
                 placement="bottom"
-                :width="getFilterPopoverWidth(col.filterType)"
+                :width="getFilterPopoverWidth(col.filterType || 'text')"
                 :trigger="col.filterType === 'multi-select' ? 'manual' : 'click'"
                 v-model:visible="popoverVisible[col.prop]"
                 :popper-options="col.filterType === 'number' || col.filterType === 'multi-select' ? { modifiers: [{ name: 'preventOverflow', options: { padding: 8 } }, { name: 'computeStyles', options: { gpuAcceleration: false } }] } : undefined"
@@ -285,9 +258,6 @@
                         :value="option"
                       />
                     </el-select>
-                    <div style="margin-top: 8px;">
-                      <el-button type="primary" size="small" @click.stop="() => handleFilterChangeAndClose(col.prop)" style="width: 100%">应用</el-button>
-                    </div>
                   </template>
                   
                   <!-- 日期筛选 -->
@@ -306,22 +276,27 @@
                   </template>
                 </div>
               </el-popover>
+              <span>{{ col.label }}</span>
+              <el-icon 
+                v-if="col.sortable"
+                class="sort-icon" 
+                :style="{ color: getSortIconColor(col.prop) }"
+                @click.stop="handleHeaderSortClick(col.prop)"
+              >
+                <component :is="getSortIcon(col.prop)" />
+              </el-icon>
             </div>
           </div>
+          <!-- 列宽调整手柄 -->
+          <div
+            class="column-resize-handle"
+            @mousedown="handleResizeStart($event, col.prop)"
+            @dblclick="handleResizeAuto(col.prop)"
+          ></div>
         </template>
         <template #default="scope">
-          <template v-if="col.type === 'number' && col.prop === 'salary'">
-            ¥{{ scope.row[col.prop]?.toLocaleString() ?? '-' }}
-          </template>
-          <template v-else-if="col.filterType === 'multi-select'">
-            <el-tag
-              v-if="col.prop === 'status'"
-              :type="getStatusType(scope.row[col.prop])"
-              size="small"
-            >
-              {{ scope.row[col.prop] ?? '-' }}
-            </el-tag>
-            <el-tag v-else>
+          <template v-if="col.filterType === 'multi-select'">
+            <el-tag>
               {{ scope.row[col.prop] ?? '-' }}
             </el-tag>
           </template>
@@ -331,26 +306,73 @@
         </template>
         </el-table-column>
       </template>
-    </el-table>
+      </el-table>
+    </div>
 
     <!-- 分页 -->
-    <el-pagination
-      v-model:current-page="pagination.page"
-      v-model:page-size="pagination.pageSize"
-      :page-sizes="[50, 100, 200, 500]"
-      :total="pagination.total"
-      layout="total, sizes, prev, pager, next, jumper"
-      style="margin-top: 16px; justify-content: flex-end"
-      @size-change="handleSizeChange"
-      @current-change="handlePageChange"
-    />
+    <div class="pagination-container" style="flex-shrink: 0; margin-top: 16px;">
+      <el-pagination
+        v-model:current-page="pagination.page"
+        v-model:page-size="pagination.pageSize"
+        :page-sizes="[50, 100, 200, 500]"
+        :total="pagination.total"
+        layout="total, sizes, prev, pager, next, jumper"
+        style="justify-content: flex-end"
+        @size-change="handleSizeChange"
+        @current-change="handlePageChange"
+      />
+    </div>
+
+    <!-- 列设置弹窗 -->
+    <el-dialog
+      v-model="showColumnSettings"
+      title="列设置"
+      width="500px"
+      :close-on-click-modal="false"
+    >
+      <div class="column-settings-content">
+        <div style="margin-bottom: 12px; color: #909399; font-size: 12px;">
+          拖拽左侧图标可调整列顺序，勾选可控制列的显示/隐藏
+        </div>
+        <div class="column-list" ref="columnListRef">
+          <div
+            v-for="(col, index) in orderedColumns"
+            :key="col.prop"
+            class="column-item"
+            :draggable="true"
+            :data-index="index"
+            @dragstart="handleDragStart($event, index)"
+            @dragover.prevent="handleDragOver($event, index)"
+            @drop="handleDrop($event, index)"
+            @dragend="handleDragEnd"
+          >
+            <div class="column-item-content">
+              <el-icon class="drag-handle" :class="{ 'dragging': dragIndex === index }">
+                <Rank />
+              </el-icon>
+              <el-checkbox
+                v-model="columnVisible[col.prop]"
+                @change="() => handleColumnToggle(col.prop)"
+                @click.stop
+              >
+                {{ col.label }}
+              </el-checkbox>
+            </div>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="showColumnSettings = false">取消</el-button>
+        <el-button type="primary" @click="handleSaveColumnOrder">确定</el-button>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, nextTick, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Search, Refresh, Delete, Setting, ArrowDown, ArrowUp, Sort, Filter } from '@element-plus/icons-vue'
+import { Search, Refresh, Delete, Setting, ArrowDown, ArrowUp, Sort, Filter, Rank } from '@element-plus/icons-vue'
 import { TableData, FilterParams, NumberFilter, RowDetail, ColumnConfig } from '../types'
 import { dataApi } from '../api/data'
 import type { ElTable } from 'element-plus'
@@ -373,14 +395,52 @@ const columnConfig = ref<ColumnConfig[]>([])
 // 列显示状态（动态生成）
 const columnVisible = reactive<Record<string, boolean>>({})
 
+// 列顺序（存储列的prop顺序）
+const columnOrder = ref<string[]>([])
+
+// 列宽度（存储每列的自定义宽度）
+const columnWidths = reactive<Record<string, number>>({})
+
+// 列设置弹窗显示状态
+const showColumnSettings = ref(false)
+
+// 拖拽相关状态
+const dragIndex = ref<number | null>(null)
+const columnListRef = ref<HTMLElement | null>(null)
+
+// 列宽调整相关状态
+const resizingColumn = ref<string | null>(null)
+const resizeStartX = ref<number>(0)
+const resizeStartWidth = ref<number>(0)
+
+// 计算属性：根据列顺序排序的列配置
+const orderedColumns = computed(() => {
+  if (columnOrder.value.length === 0) {
+    return columnConfig.value
+  }
+  // 按照columnOrder的顺序排序
+  const orderMap = new Map(columnOrder.value.map((prop, index) => [prop, index]))
+  return [...columnConfig.value].sort((a, b) => {
+    const indexA = orderMap.get(a.prop) ?? Infinity
+    const indexB = orderMap.get(b.prop) ?? Infinity
+    return indexA - indexB
+  })
+})
+
+// 计算可见列的总宽度，用于确保表格填满屏幕
+const visibleColumnsCount = computed(() => {
+  return orderedColumns.value.filter(col => columnVisible[col.prop]).length
+})
+
 // Popover 显示状态（用于保持多选筛选的悬浮框打开）
 const popoverVisible = reactive<Record<string, boolean>>({})
 
 // 需要保持打开的 popover（多选筛选时）
 const keepOpenPopovers = reactive<Set<string>>(new Set())
 
-// 使用定时器持续检查并保持需要打开的 popover
+// 使用定时器持续检查并保持需要打开的 popover（仅当 keepOpenPopovers 中有值时）
 const keepPopoverOpen = () => {
+  if (keepOpenPopovers.size === 0) return
   keepOpenPopovers.forEach(prop => {
     if (!popoverVisible[prop]) {
       popoverVisible[prop] = true
@@ -390,22 +450,65 @@ const keepPopoverOpen = () => {
 
 // 启动定时器，每100ms检查一次
 let keepOpenInterval: number | null = null
+
+// 处理点击外部关闭 popover
+const handleClickOutside = (event: MouseEvent) => {
+  const target = event.target as HTMLElement
+  
+  // 检查点击是否在任何 popover 内部
+  // 包括 popover 本身、el-select 下拉框等
+  const isInsidePopover = target.closest('.el-popover') || 
+                          target.closest('.el-select-dropdown') ||
+                          target.closest('.el-popper')
+  
+  // 检查是否点击在筛选图标上（需要排除，因为点击图标应该切换 popover）
+  const isFilterIcon = target.closest('.filter-icon')
+  
+  // 如果点击在 popover 外部且不是筛选图标，关闭所有打开的 popover
+  if (!isInsidePopover && !isFilterIcon) {
+    // 关闭所有 popover（包括手动控制和自动控制的）
+    Object.keys(popoverVisible).forEach(prop => {
+      if (popoverVisible[prop]) {
+        popoverVisible[prop] = false
+      }
+    })
+    // 清除所有保持打开的标记
+    keepOpenPopovers.clear()
+  }
+}
+
+// 窗口大小变化处理
+const handleResize = () => {
+  initTableWidth()
+}
+
 onMounted(() => {
   keepOpenInterval = setInterval(keepPopoverOpen, 100) as unknown as number
+  // 添加全局点击监听器
+  document.addEventListener('click', handleClickOutside)
+  // 添加窗口大小变化监听
+  window.addEventListener('resize', handleResize)
 })
 
-// 组件卸载时清理定时器  
+// 组件卸载时清理定时器和监听器
 onUnmounted(() => {
   if (keepOpenInterval !== null) {
     clearInterval(keepOpenInterval)
   }
+  document.removeEventListener('click', handleClickOutside)
+  window.removeEventListener('resize', handleResize)
 })
 
-// 初始化列显示状态
+// 初始化列显示状态和列顺序
 const initColumnVisible = (columns: ColumnConfig[]) => {
   columns.forEach(col => {
-    columnVisible[col.prop] = true  // 默认全部显示
+    // id列默认隐藏，其他列默认显示
+    columnVisible[col.prop] = col.prop !== 'id'
   })
+  // 初始化列顺序
+  if (columnOrder.value.length === 0) {
+    columnOrder.value = columns.map(col => col.prop)
+  }
 }
 
 // 临时输入状态（用户正在输入的值，不会立即触发刷新）
@@ -427,7 +530,6 @@ const sortInfo = reactive({
   order: undefined as 'ascending' | 'descending' | null | undefined
 })
 
-// 加载筛选选项
 // 默认列配置（当后端加载失败时使用，现在为空数组，因为字段应该是动态的）
 // 如果后端配置加载失败，前端将无法显示任何列，这是预期的行为
 const defaultColumns: ColumnConfig[] = []
@@ -445,20 +547,6 @@ const loadColumnsConfig = async () => {
     columnConfig.value = defaultColumns
     initColumnVisible(defaultColumns)
     initFilterForm(defaultColumns)
-  }
-}
-
-const loadFilterOptions = async () => {
-  // 筛选选项现在从列配置的 options 字段获取，不需要单独加载
-  // 如果后端提供了额外的筛选选项API，可以在这里加载
-  try {
-    const options = await dataApi.getFilters()
-    // 动态设置筛选选项
-    if (options.departments) filterOptions['department'] = options.departments
-    if (options.statuses) filterOptions['status'] = options.statuses
-    // 可以扩展其他字段的选项加载
-  } catch (error) {
-    // 加载筛选选项失败，静默处理
   }
 }
 
@@ -826,7 +914,7 @@ const handleFilterChange = () => {
   })
 }
 
-// 处理多选变化（仅保持悬浮框打开，不自动应用筛选）
+// 处理多选变化（立即应用筛选并保持悬浮框打开）
 const handleMultiSelectChange = (prop: string) => {
   // 标记这个字段的 popover 需要保持打开
   keepOpenPopovers.add(prop)
@@ -834,9 +922,14 @@ const handleMultiSelectChange = (prop: string) => {
   // 立即强制保持悬浮框打开
   popoverVisible[prop] = true
   
+  // 立即同步输入状态到筛选表单并应用筛选
+  syncFilterInputsToForm()
+  
   // 在多个时机确保悬浮框保持打开
   nextTick(() => {
     popoverVisible[prop] = true
+    // 应用筛选
+    loadData(true)
   })
   
   // 延迟确保 DOM 更新完成
@@ -980,16 +1073,142 @@ const handleColumnToggle = (prop: string) => {
     }
   }
   // 列显示状态已在 checkbox 的 v-model 中更新
+  // 列显示状态变化后，重新计算表格宽度
+  nextTick(() => {
+    initTableWidth()
+  })
 }
 
-// 获取状态类型
-const getStatusType = (status: string) => {
-  const typeMap: Record<string, 'success' | 'danger' | 'warning'> = {
-    '在职': 'success',
-    '离职': 'danger',
-    '试用期': 'warning'
+// 拖拽处理函数
+const handleDragStart = (event: DragEvent, index: number) => {
+  dragIndex.value = index
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/html', '')
   }
-  return typeMap[status] || ''
+  // 添加拖拽样式
+  const target = event.target as HTMLElement
+  const item = target.closest('.column-item') as HTMLElement | null
+  if (item) {
+    item.style.opacity = '0.5'
+  }
+}
+
+const handleDragOver = (event: DragEvent, index: number) => {
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = 'move'
+  }
+  // 添加悬停样式
+  const target = event.target as HTMLElement
+  const item = target.closest('.column-item') as HTMLElement | null
+  if (item && dragIndex.value !== null && dragIndex.value !== index) {
+    item.style.backgroundColor = '#f0f9ff'
+  }
+}
+
+const handleDrop = (event: DragEvent, dropIndex: number) => {
+  event.preventDefault()
+  if (dragIndex.value === null || dragIndex.value === dropIndex) {
+    return
+  }
+  
+  // 重新排序列（使用orderedColumns的当前值）
+  const currentColumns = [...orderedColumns.value]
+  const [removed] = currentColumns.splice(dragIndex.value, 1)
+  currentColumns.splice(dropIndex, 0, removed)
+  
+  // 更新列顺序
+  columnOrder.value = currentColumns.map(col => col.prop)
+  
+  // 清除样式
+  const items = columnListRef.value?.querySelectorAll('.column-item')
+  items?.forEach((item) => {
+    (item as HTMLElement).style.backgroundColor = ''
+  })
+}
+
+const handleDragEnd = () => {
+  dragIndex.value = null
+  // 清除所有拖拽样式
+  const items = columnListRef.value?.querySelectorAll('.column-item')
+  items?.forEach((item) => {
+    const el = item as HTMLElement
+    el.style.opacity = ''
+    el.style.backgroundColor = ''
+  })
+}
+
+// 保存列顺序
+const handleSaveColumnOrder = () => {
+  // 列顺序已经实时更新，这里只需要关闭弹窗
+  showColumnSettings.value = false
+  ElMessage.success('列顺序已保存')
+}
+
+// 列宽调整处理函数
+const handleResizeStart = (event: MouseEvent, prop: string) => {
+  event.preventDefault()
+  event.stopPropagation()
+  
+  resizingColumn.value = prop
+  resizeStartX.value = event.clientX
+  
+  // 获取当前列宽
+  const currentWidth = columnWidths[prop] || columnConfig.value.find(c => c.prop === prop)?.width
+  resizeStartWidth.value = currentWidth || 120
+  
+  // 添加全局事件监听
+  document.addEventListener('mousemove', handleResizeMove)
+  document.addEventListener('mouseup', handleResizeEnd)
+  
+  // 添加样式
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+}
+
+const handleResizeMove = (event: MouseEvent) => {
+  if (!resizingColumn.value) return
+  
+  const diff = event.clientX - resizeStartX.value
+  const newWidth = Math.max(120, resizeStartWidth.value + diff) // 最小宽度120
+  
+  columnWidths[resizingColumn.value] = newWidth
+}
+
+const handleResizeEnd = () => {
+  if (resizingColumn.value) {
+    resizingColumn.value = null
+  }
+  
+  // 移除全局事件监听
+  document.removeEventListener('mousemove', handleResizeMove)
+  document.removeEventListener('mouseup', handleResizeEnd)
+  
+  // 恢复样式
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+}
+
+// 双击重置列宽为默认值
+const handleResizeAuto = (prop: string) => {
+  // 移除自定义宽度，恢复为配置的默认宽度
+  delete columnWidths[prop]
+  ElMessage.success('列宽已重置为默认值')
+}
+
+// 计算列宽，确保表格总宽度填满屏幕
+const getColumnWidth = (col: ColumnConfig): number | undefined => {
+  // 如果设置了自定义宽度，使用自定义宽度
+  if (columnWidths[col.prop]) {
+    return columnWidths[col.prop]
+  }
+  // 如果配置中有固定宽度，使用配置的宽度
+  if (col.width) {
+    return col.width
+  }
+  // 否则使用最小宽度
+  return col.minWidth || 120
 }
 
 // 获取排序图标
@@ -1085,13 +1304,55 @@ const getFilterPopoverWidth = (filterType: string): number => {
   }
 }
 
+// 初始化表格宽度，确保填满屏幕
+const initTableWidth = () => {
+  nextTick(() => {
+    if (!tableRef.value) return
+    
+    const tableEl = tableRef.value.$el as HTMLElement
+    if (!tableEl) return
+    
+    const tableContainer = tableEl.closest('.table-container') as HTMLElement
+    if (!tableContainer) return
+    
+    const containerWidth = tableContainer.clientWidth
+    if (containerWidth <= 0) return
+    
+    // 计算可见列（不包括固定列）
+    const visibleCols = orderedColumns.value.filter(col => columnVisible[col.prop] && !col.fixed)
+    if (visibleCols.length === 0) return
+    
+    // 计算已设置的列宽总和
+    // 展开列固定50px
+    let totalWidth = 50
+    // 计算所有可见列的宽度（包括固定列）
+    orderedColumns.value.forEach(col => {
+      if (columnVisible[col.prop]) {
+        const width = getColumnWidth(col)
+        if (width) {
+          totalWidth += width
+        }
+      }
+    })
+    
+    // 如果总宽度小于容器宽度，调整最后一列（非固定列）的宽度
+    if (totalWidth < containerWidth && visibleCols.length > 0) {
+      const lastCol = visibleCols[visibleCols.length - 1]
+      const lastColWidth = getColumnWidth(lastCol) || 120
+      const newWidth = lastColWidth + (containerWidth - totalWidth)
+      columnWidths[lastCol.prop] = Math.max(newWidth, lastCol.minWidth || 120)
+    }
+  })
+}
+
 // 初始化
 onMounted(async () => {
   try {
     await loadColumnsConfig()  // 先加载列配置，确保列可见性已初始化
-    loadFilterOptions()
     // 确保列配置加载完成后再加载数据
     await loadData()
+    // 初始化表格宽度
+    initTableWidth()
   } catch (error) {
     // 即使列配置加载失败，也尝试加载数据（使用默认配置）
     if (columnConfig.value.length === 0) {
@@ -1100,15 +1361,17 @@ onMounted(async () => {
       initFilterForm(defaultColumns)
     }
     await loadData()
+    // 初始化表格宽度
+    initTableWidth()
   }
 })
 </script>
 
 <style scoped>
 .table-card {
-  margin: 16px;
-  height: calc(100vh - 32px);
-  width: calc(100% - 32px);
+  margin: 0;
+  height: 100vh;
+  width: 100%;
   max-width: 100%;
   display: flex;
   flex-direction: column;
@@ -1117,6 +1380,19 @@ onMounted(async () => {
 
 :deep(.el-card__body) {
   padding: 16px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 表格容器：占据剩余空间 */
+.table-container {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* 列头样式 */
@@ -1131,7 +1407,7 @@ onMounted(async () => {
   margin-bottom: 4px;
 }
 
-/* 标题行样式（包含排序图标和标题） */
+/* 标题行样式（包含筛选图标、标题和排序图标） */
 .header-title-row {
   display: flex;
   align-items: center;
@@ -1142,22 +1418,24 @@ onMounted(async () => {
 .header-title-row > span {
   font-weight: 600;
   margin-bottom: 0;
+  flex: 1;
+  text-align: center;
 }
 
-/* 排序图标样式 */
-.sort-icon {
+/* 筛选图标样式（左侧） */
+.filter-icon {
   cursor: pointer;
   font-size: 14px;
   transition: color 0.2s;
   flex-shrink: 0;
 }
 
-.sort-icon:hover {
+.filter-icon:hover {
   color: #409eff !important;
 }
 
-/* 筛选图标样式 */
-.filter-icon {
+/* 排序图标样式（右侧） */
+.sort-icon {
   cursor: pointer;
   font-size: 14px;
   transition: color 0.2s;
@@ -1165,7 +1443,7 @@ onMounted(async () => {
   margin-left: auto;
 }
 
-.filter-icon:hover {
+.sort-icon:hover {
   color: #409eff !important;
 }
 
@@ -1337,6 +1615,135 @@ onMounted(async () => {
 :deep(.el-dropdown-menu__item .el-checkbox__label) {
   cursor: pointer;
   padding-left: 8px;
+}
+
+/* 表格单元格内容不换行，保持单行显示 */
+:deep(.el-table .el-table__cell) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:deep(.el-table .el-table__body-wrapper .el-table__cell) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:deep(.el-table .el-table__header-wrapper .el-table__cell) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 使用固定表格布局，列宽由 width 属性控制，不支持自动调整 */
+:deep(.el-table) {
+  table-layout: fixed !important;
+}
+
+:deep(.el-table__header-wrapper),
+:deep(.el-table__body-wrapper) {
+  width: 100%;
+}
+
+/* 确保单元格内容不换行 */
+:deep(.el-table td),
+:deep(.el-table th) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 展开详情表格也保持单行 */
+.expand-detail :deep(.el-table .el-table__cell) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 列设置弹窗样式 */
+.column-settings-content {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.column-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.column-item {
+  padding: 8px 12px;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+  background-color: #fff;
+  cursor: move;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.column-item:hover {
+  background-color: #f5f7fa;
+  border-color: #c0c4cc;
+}
+
+.column-item.dragging {
+  opacity: 0.5;
+}
+
+.column-item-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.drag-handle {
+  color: #909399;
+  cursor: grab;
+  font-size: 16px;
+  transition: color 0.2s;
+}
+
+.drag-handle:hover {
+  color: #409eff;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.drag-handle.dragging {
+  color: #409eff;
+}
+
+/* 列宽调整手柄样式 */
+.column-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 4px;
+  height: 100%;
+  cursor: col-resize;
+  background-color: transparent;
+  z-index: 10;
+  transition: background-color 0.2s;
+}
+
+.column-resize-handle:hover {
+  background-color: #409eff;
+}
+
+/* 确保列头容器有相对定位，以便调整手柄正确定位 */
+:deep(.el-table__header-wrapper .el-table__cell) {
+  position: relative;
+}
+
+:deep(.el-table__header-wrapper .column-header) {
+  position: relative;
+  padding-right: 8px;
+  width: 100%;
+  height: 100%;
 }
 </style>
 

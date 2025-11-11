@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { TableData, FilterParams, PaginationParams, ApiResponse, ListResponse, FilterOptions, RowPositionResponse, RowDetail, ColumnsConfigResponse } from '../types'
+import { TableData, FilterParams, PaginationParams, ApiResponse, ListResponse, RowPositionResponse, RowDetail, ColumnsConfigResponse } from '../types'
 
 // 动态获取 API base URL
 // 如果是在 NiceGUI 中嵌入，使用相对路径
@@ -71,35 +71,6 @@ export const dataApi = {
       } else {
         throw new Error('API返回数据格式错误')
       }
-    } catch (error: any) {
-      if (error.response) {
-        throw new Error(error.response.data?.detail || error.response.data?.message || '服务器错误')
-      } else if (error.request) {
-        throw new Error('无法连接到服务器，请确保后端服务已启动')
-      } else {
-        throw error
-      }
-    }
-  },
-
-  // 获取筛选选项
-  getFilters: async (): Promise<FilterOptions> => {
-    try {
-      const response = await api.get('/data/filters')
-      
-      const data = response.data
-      
-      // 如果直接返回了 FilterOptions 格式
-      if (data.departments && data.statuses) {
-        return data as FilterOptions
-      }
-      
-      // 如果是 ApiResponse 格式
-      if (data.success && data.data) {
-        return data.data as FilterOptions
-      }
-      
-      throw new Error('API返回数据格式错误: ' + JSON.stringify(data))
     } catch (error: any) {
       if (error.response) {
         throw new Error(error.response.data?.detail || error.response.data?.message || '服务器错误')

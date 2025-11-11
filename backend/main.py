@@ -93,6 +93,28 @@ def init_data() -> pd.DataFrame:
     # 使用列表推导式生成日期字符串
     order_dates = [(base_date - timedelta(days=int(offset))).strftime('%Y-%m-%d') for offset in day_offsets]
     
+    # 生成16进制码流字段（订单备注）- 每个字节之间有空格，长度50左右
+    # 使用ID作为随机种子，确保相同ID生成相同的数据
+    byte_count = 50
+    hex_streams = []
+    
+    # 保存当前随机状态
+    original_state = np.random.get_state()
+    
+    for id_val in ids:
+        # 将numpy类型转换为Python int，避免类型错误
+        seed = int(id_val)
+        # 创建独立的随机数生成器，使用ID作为种子
+        rng = np.random.RandomState(seed)
+        # 生成50个字节的随机数据（0-255）
+        random_bytes = rng.randint(0, 256, size=byte_count, dtype=np.uint8)
+        # 转换为16进制字符串，每个字节之间加空格，使用大写字母
+        hex_string = ' '.join([f'{int(b):02X}' for b in random_bytes])
+        hex_streams.append(hex_string)
+    
+    # 恢复原始随机状态
+    np.random.set_state(original_state)
+    
     # 创建DataFrame（使用字典方式，更高效）
     data_df = pd.DataFrame({
         'id': ids,
@@ -106,7 +128,8 @@ def init_data() -> pd.DataFrame:
         'merchant': merchant_values,
         'user_id': user_ids,
         'discount': discounts,
-        'order_date': order_dates
+        'order_date': order_dates,
+        'order_remark': hex_streams  # 16进制码流字段
     })
     
     elapsed = (datetime.now() - start_time).total_seconds()

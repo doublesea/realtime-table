@@ -1,14 +1,7 @@
 
-export interface TableData {
-  id: number
-  name: string
-  email: string
-  age: number
-  department: string
-  salary: number
-  status: string
-  createTime: string
-}
+// TableData 现在是动态的，根据后端返回的数据结构确定
+// 不再使用固定的字段定义
+export type TableData = Record<string, any>
 
 export interface NumberFilter {
   operator?: '=' | '>' | '<' | '>=' | '<='
@@ -20,20 +13,9 @@ export interface FilterGroup {
   logic?: 'AND' | 'OR'  // 多个条件之间的逻辑关系
 }
 
-export interface FilterParams {
-  id?: string | NumberFilter | FilterGroup
-  name?: string
-  email?: string
-  department?: string | string[]  // 支持单选或多选
-  status?: string | string[]  // 支持单选或多选
-  age?: NumberFilter | FilterGroup
-  ageMin?: number
-  ageMax?: number
-  salary?: NumberFilter | FilterGroup
-  salaryMin?: number
-  salaryMax?: number
-  createTime?: string
-}
+// FilterParams 现在是动态的，支持任意字段名
+// 不再使用固定的字段定义
+export type FilterParams = Record<string, any>
 
 export interface PaginationParams {
   page: number
@@ -52,11 +34,6 @@ export interface ListResponse {
   total: number
   page: number
   pageSize: number
-}
-
-export interface FilterOptions {
-  departments: string[]
-  statuses: string[]
 }
 
 export interface RowPositionResponse {

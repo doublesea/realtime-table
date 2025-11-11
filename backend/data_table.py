@@ -223,59 +223,6 @@ class DataTable:
         
         return mask
     
-    def _apply_number_filter(self, mask: pd.Series, field_name: str, filter_value: Any):
-        """应用数字筛选条件（辅助方法）"""
-        try:
-            from .api import FilterGroup, NumberFilter
-        except ImportError:
-            from backend.api import FilterGroup, NumberFilter
-        
-        if field_name not in self.dataframe.columns:
-            return
-        
-        if isinstance(filter_value, FilterGroup):
-            filters_mask = []
-            for num_filter in filter_value.filters:
-                if num_filter.operator and num_filter.value is not None:
-                    op = num_filter.operator
-                    val = num_filter.value
-                    if op == '=':
-                        filters_mask.append(self.dataframe[field_name] == val)
-                    elif op == '>':
-                        filters_mask.append(self.dataframe[field_name] > val)
-                    elif op == '<':
-                        filters_mask.append(self.dataframe[field_name] < val)
-                    elif op == '>=':
-                        filters_mask.append(self.dataframe[field_name] >= val)
-                    elif op == '<=':
-                        filters_mask.append(self.dataframe[field_name] <= val)
-            
-            if filters_mask:
-                logic = filter_value.logic or 'AND'
-                if logic.upper() == 'OR':
-                    field_mask = filters_mask[0]
-                    for m in filters_mask[1:]:
-                        field_mask |= m
-                else:
-                    field_mask = filters_mask[0]
-                    for m in filters_mask[1:]:
-                        field_mask &= m
-                mask &= field_mask
-        elif isinstance(filter_value, NumberFilter):
-            if filter_value.operator and filter_value.value is not None:
-                op = filter_value.operator
-                val = filter_value.value
-                if op == '=':
-                    mask &= (self.dataframe[field_name] == val)
-                elif op == '>':
-                    mask &= (self.dataframe[field_name] > val)
-                elif op == '<':
-                    mask &= (self.dataframe[field_name] < val)
-                elif op == '>=':
-                    mask &= (self.dataframe[field_name] >= val)
-                elif op == '<=':
-                    mask &= (self.dataframe[field_name] <= val)
-    
     def get_list(self, 
                  filters: Optional['FilterParams'] = None,
                  page: int = 1,
