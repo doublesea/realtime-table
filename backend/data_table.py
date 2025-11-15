@@ -241,7 +241,25 @@ class DataTable:
             elif col_config.filterType == 'date':
                 # 日期筛选
                 if isinstance(filter_value, str) and filter_value:
-                    mask &= (self.dataframe[field_name].astype(str) == filter_value)
+                    # 如果是ts字段（时间戳），需要特殊处理
+                    if field_name == 'ts':
+                        from datetime import datetime
+                        # 将时间戳转换为字符串进行文本匹配（支持部分匹配，如只输入时间）
+                        def timestamp_to_str(ts):
+                            """将时间戳转换为字符串用于匹配"""
+                            try:
+                                dt = datetime.fromtimestamp(float(ts))
+                                microseconds = int((float(ts) % 1) * 1000000)
+                                return dt.strftime('%Y-%m-%d %H:%M:%S') + f'.{microseconds:06d}'
+                            except (ValueError, OSError):
+                                return str(ts)
+                        
+                        # 将ts列转换为字符串进行文本匹配（支持部分匹配）
+                        ts_str_series = self.dataframe[field_name].apply(timestamp_to_str)
+                        mask &= ts_str_series.str.contains(filter_value, case=False, na=False)
+                    else:
+                        # 普通日期字段，直接字符串匹配
+                        mask &= (self.dataframe[field_name].astype(str) == filter_value)
             
             elif col_config.filterType in ['multi-select', 'select']:
                 # 多选或单选筛选
@@ -304,12 +322,23 @@ class DataTable:
         # 将DataFrame转换为字典列表
         data_list = paginated_df.to_dict('records')
         
-        # 处理bytes类型字段，转换为16进制字符串用于JSON序列化
+        # 处理特殊类型字段的转换
         for record in data_list:
             for key, value in record.items():
                 if isinstance(value, bytes):
                     # 将bytes转换为16进制字符串，每个字节之间加空格
                     record[key] = ' '.join([f'{b:02X}' for b in value])
+                elif key == 'ts' and isinstance(value, (int, float)):
+                    # 将时间戳（float，微秒精度）转换为日期时间字符串
+                    from datetime import datetime
+                    try:
+                        dt = datetime.fromtimestamp(float(value))
+                        # 提取微秒部分（时间戳的小数部分转换为微秒）
+                        microseconds = int((float(value) % 1) * 1000000)
+                        record[key] = dt.strftime('%Y-%m-%d %H:%M:%S') + f'.{microseconds:06d}'
+                    except (ValueError, OSError):
+                        # 如果转换失败，保持原值
+                        pass
         
         return {
             "list": data_list,
@@ -399,9 +428,21 @@ class DataTable:
             prop = col_config.prop
             if prop in row_record:
                 value = row_record[prop]
-                # 处理bytes类型字段，转换为16进制字符串用于JSON序列化
+                # 处理特殊类型字段的转换
                 if isinstance(value, bytes):
+                    # 处理bytes类型字段，转换为16进制字符串用于JSON序列化
                     value = ' '.join([f'{b:02X}' for b in value])
+                elif prop == 'ts' and isinstance(value, (int, float)):
+                    # 将时间戳（float，微秒精度）转换为日期时间字符串
+                    from datetime import datetime
+                    try:
+                        dt = datetime.fromtimestamp(float(value))
+                        # 提取微秒部分（时间戳的小数部分转换为微秒）
+                        microseconds = int((float(value) % 1) * 1000000)
+                        value = dt.strftime('%Y-%m-%d %H:%M:%S') + f'.{microseconds:06d}'
+                    except (ValueError, OSError):
+                        # 如果转换失败，保持原值
+                        pass
                 
                 detail_item = {
                     "label": col_config.label,
@@ -438,11 +479,15 @@ def generate_columns_config_from_dataframe(df: pd.DataFrame) -> List[ColumnConfi
         options = None
         
         # 根据数据类型设置类型和筛选方式
-        if 'int' in col_type or 'float' in col_type:
+        if col.lower() == 'ts':
+            # ts字段优先识别为日期类型
+            column_type = 'date'
+            filter_type = 'date'
+        elif 'int' in col_type or 'float' in col_type:
             column_type = 'number'
             filter_type = 'number'
         elif 'datetime' in col_type or 'date' in col.lower():
-            # 自动识别日期字段（datetime类型或字段名包含date）
+            # 自动识别日期字段（datetime类型、字段名包含date或ts字段）
             column_type = 'date'
             filter_type = 'date'
         elif col == 'id':

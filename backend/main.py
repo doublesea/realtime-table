@@ -93,6 +93,15 @@ def init_data() -> pd.DataFrame:
     # 使用列表推导式生成日期字符串
     order_dates = [(base_date - timedelta(days=int(offset))).strftime('%Y-%m-%d') for offset in day_offsets]
     
+    # 生成ts列（时间戳，float类型，微秒精度）- 生成过去2年内的随机时间戳
+    # 时间戳范围：当前时间往前2年到当前时间
+    base_timestamp = base_date.timestamp()
+    two_years_seconds = 2 * 365 * 24 * 3600
+    # 生成随机秒数偏移（0到2年），包含微秒精度
+    seconds_offsets = np.random.uniform(0, two_years_seconds, size=TOTAL_RECORDS)
+    # 生成时间戳（float类型，包含秒和微秒）
+    timestamps = base_timestamp - seconds_offsets
+    
     # 生成16进制码流字段（订单备注）- 每个字节之间有空格，长度50左右
     # 使用ID作为随机种子，确保相同ID生成相同的数据
     byte_count = 50
@@ -141,7 +150,8 @@ def init_data() -> pd.DataFrame:
         'discount': discounts,
         'order_date': order_dates,
         # 'order_remark': hex_streams,  # 16进制码流字段
-        'payload': payload_bytes_list  # payload字段（真正的bytes类型）
+        'payload': payload_bytes_list,  # payload字段（真正的bytes类型）
+        'ts': timestamps  # 时间戳字段（float类型）
     })
     
     elapsed = (datetime.now() - start_time).total_seconds()

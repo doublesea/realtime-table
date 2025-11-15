@@ -266,12 +266,15 @@
                   <template v-else-if="col.filterType === 'date'">
                     <el-input
                       v-model="filterInputs[col.prop]"
-                      placeholder="YYYY-MM-DD（按回车确认）"
+                      :placeholder="col.prop === 'ts' ? '支持文本匹配：日期、时间或日期时间（按回车确认）' : 'YYYY-MM-DD（按回车确认）'"
                       size="small"
                       clearable
                       @keyup.enter="() => handleFilterChange(col.prop)"
                       @clear="() => handleFilterChange(col.prop)"
                     />
+                    <div v-if="col.prop === 'ts'" style="margin-top: 4px; font-size: 12px; color: #909399;">
+                      支持文本匹配：日期、时间或日期时间（如：2024-01-01、12:30:45 或 2024-01-01 12:30:45.123456）
+                    </div>
                     <div style="margin-top: 8px;">
                       <el-button type="primary" size="small" @click="() => handleFilterChange(col.prop)" style="width: 100%">应用筛选</el-button>
                     </div>
