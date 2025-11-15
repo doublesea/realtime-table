@@ -53,7 +53,7 @@ class TableData(BaseModel):
 
 class NumberFilter(BaseModel):
     operator: Optional[str] = None  # '=', '>', '<', '>=', '<='
-    value: Optional[Union[int, float]] = None  # 支持整数和浮点数
+    value: Optional[Union[int, float, str]] = None  # 支持整数、浮点数和字符串（支持16进制如0x123）
 
 
 class FilterGroup(BaseModel):

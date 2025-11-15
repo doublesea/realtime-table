@@ -113,8 +113,8 @@
                       :placeholder="`筛选${col.label}（按回车确认）`"
                       size="small"
                       clearable
-                      @keyup.enter="handleFilterChange"
-                      @clear="handleFilterChange"
+                      @keyup.enter="() => handleFilterChange(col.prop)"
+                      @clear="() => handleFilterChange(col.prop)"
                     >
                       <template #prefix>
                         <el-icon style="font-size: 12px;"><Search /></el-icon>
@@ -141,19 +141,20 @@
                         <el-option label=">=" value=">=" />
                         <el-option label="<=" value="<=" />
                       </el-select>
-                      <el-input-number
+                      <el-input
                         v-model="filterInputs[`${col.prop}Value`]"
-                        placeholder="值"
+                        placeholder="值（支持0x16进制）"
                         size="small"
-                        :min="0"
-                        :controls="false"
                         style="flex: 1"
-                        @keyup.enter="handleFilterChange"
+                        @keyup.enter="() => handleFilterChange(col.prop)"
                         @click.stop
                       />
                     </div>
+                    <div style="margin-top: 4px; font-size: 12px; color: #909399;">
+                      支持十进制或16进制（如：123 或 0x123）
+                    </div>
                     <div style="margin-top: 8px;">
-                      <el-button type="primary" size="small" @click="handleFilterChange" style="width: 100%">应用筛选</el-button>
+                      <el-button type="primary" size="small" @click="() => handleFilterChange(col.prop)" style="width: 100%">应用筛选</el-button>
                     </div>
                   </template>
                   
@@ -193,14 +194,12 @@
                           <el-option label=">=" value=">=" />
                           <el-option label="<=" value="<=" />
                         </el-select>
-                        <el-input-number
+                        <el-input
                           v-model="filter.value"
-                          placeholder="值（按回车确认）"
+                          placeholder="值（支持0x16进制）"
                           size="small"
-                          :min="0"
-                          :controls="false"
                           style="flex: 1; min-width: 80px"
-                          @keyup.enter="handleFilterChange"
+                          @keyup.enter="() => handleFilterChange(col.prop)"
                           @click.stop
                         />
                         <el-button
@@ -222,8 +221,11 @@
                         + 添加条件
                       </el-button>
                     </div>
+                    <div style="margin-top: 4px; font-size: 12px; color: #909399;">
+                      支持十进制或16进制（如：123 或 0x123）
+                    </div>
                     <div style="margin-top: 8px;">
-                      <el-button type="primary" size="small" @click="handleFilterChange" style="width: 100%">应用筛选</el-button>
+                      <el-button type="primary" size="small" @click="() => handleFilterChange(col.prop)" style="width: 100%">应用筛选</el-button>
                     </div>
                   </template>
                   
@@ -267,11 +269,11 @@
                       placeholder="YYYY-MM-DD（按回车确认）"
                       size="small"
                       clearable
-                      @keyup.enter="handleFilterChange"
-                      @clear="handleFilterChange"
+                      @keyup.enter="() => handleFilterChange(col.prop)"
+                      @clear="() => handleFilterChange(col.prop)"
                     />
                     <div style="margin-top: 8px;">
-                      <el-button type="primary" size="small" @click="handleFilterChange" style="width: 100%">应用筛选</el-button>
+                      <el-button type="primary" size="small" @click="() => handleFilterChange(col.prop)" style="width: 100%">应用筛选</el-button>
                     </div>
                   </template>
                 </div>
@@ -299,6 +301,11 @@
             <el-tag>
               {{ scope.row[col.prop] ?? '-' }}
             </el-tag>
+          </template>
+          <template v-else-if="col.type === 'bytes'">
+            <span class="bytes-display" :title="scope.row[col.prop]">
+              {{ scope.row[col.prop] ?? '-' }}
+            </span>
           </template>
           <template v-else>
             {{ scope.row[col.prop] ?? '-' }}
@@ -903,7 +910,7 @@ const syncFilterInputsToForm = () => {
 }
 
 // 处理筛选变化（仅在确认时调用）
-const handleFilterChange = () => {
+const handleFilterChange = (prop?: string) => {
   // 先同步输入状态到筛选表单
   syncFilterInputsToForm()
   
@@ -911,6 +918,14 @@ const handleFilterChange = () => {
   nextTick(() => {
     // 保持选中行在当前页可见
     loadData(true)
+    
+    // 如果有字段名，关闭该字段的悬浮框
+    if (prop) {
+      // 移除保持打开的标记
+      keepOpenPopovers.delete(prop)
+      // 关闭悬浮框
+      popoverVisible[prop] = false
+    }
   })
 }
 
@@ -1744,6 +1759,19 @@ onMounted(async () => {
   padding-right: 8px;
   width: 100%;
   height: 100%;
+}
+
+/* bytes类型字段显示样式 */
+.bytes-display {
+  font-family: 'Courier New', 'Monaco', 'Menlo', monospace;
+  font-size: 12px;
+  color: #409eff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  display: inline-block;
+  cursor: help;
 }
 </style>
 

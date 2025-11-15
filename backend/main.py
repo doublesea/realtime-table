@@ -98,6 +98,10 @@ def init_data() -> pd.DataFrame:
     byte_count = 50
     hex_streams = []
     
+    # 生成payload字段（bytes类型）- 真正的bytes对象，长度100左右
+    payload_byte_count = 16
+    payload_bytes_list = []
+    
     # 保存当前随机状态
     original_state = np.random.get_state()
     
@@ -111,6 +115,13 @@ def init_data() -> pd.DataFrame:
         # 转换为16进制字符串，每个字节之间加空格，使用大写字母
         hex_string = ' '.join([f'{int(b):02X}' for b in random_bytes])
         hex_streams.append(hex_string)
+        
+        # 生成payload字段的随机数据（使用不同的种子确保与order_remark不同）
+        payload_rng = np.random.RandomState(seed + 10000)
+        payload_bytes_array = payload_rng.randint(0, 256, size=payload_byte_count, dtype=np.uint8)
+        # 转换为Python bytes对象
+        payload_bytes = bytes(payload_bytes_array.tolist())
+        payload_bytes_list.append(payload_bytes)
     
     # 恢复原始随机状态
     np.random.set_state(original_state)
@@ -129,7 +140,8 @@ def init_data() -> pd.DataFrame:
         'user_id': user_ids,
         'discount': discounts,
         'order_date': order_dates,
-        'order_remark': hex_streams  # 16进制码流字段
+        # 'order_remark': hex_streams,  # 16进制码流字段
+        'payload': payload_bytes_list  # payload字段（真正的bytes类型）
     })
     
     elapsed = (datetime.now() - start_time).total_seconds()

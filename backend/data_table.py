@@ -5,15 +5,16 @@
 """
 
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 import pandas as pd
+import re
 
 
 class ColumnConfig(BaseModel):
     """列配置模型"""
     prop: str  # 字段名
     label: str  # 列标题
-    type: str  # 数据类型: 'string', 'number', 'date', 'boolean'
+    type: str  # 数据类型: 'string', 'number', 'date', 'boolean', 'bytes'
     sortable: Optional[bool] = True  # 是否可排序
     filterable: Optional[bool] = True  # 是否可筛选
     filterType: Optional[str] = 'text'  # 筛选类型: 'text', 'number', 'select', 'multi-select', 'date', 'none'
@@ -66,6 +67,32 @@ class DataTable:
         if missing_in_df:
             raise ValueError(f"列配置中定义的字段在DataFrame中不存在: {missing_in_df}")
     
+    def _parse_number_value(self, value: Any) -> Union[int, float, None]:
+        """解析数字值，支持16进制字符串（如0x123）"""
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return value
+        if isinstance(value, str):
+            # 尝试解析16进制字符串
+            value_stripped = value.strip()
+            if value_stripped.startswith('0x') or value_stripped.startswith('0X'):
+                try:
+                    return int(value_stripped, 16)
+                except ValueError:
+                    # 如果解析失败，尝试作为普通数字
+                    try:
+                        return float(value_stripped) if '.' in value_stripped else int(value_stripped)
+                    except ValueError:
+                        return None
+            else:
+                # 尝试作为普通数字解析
+                try:
+                    return float(value_stripped) if '.' in value_stripped else int(value_stripped)
+                except ValueError:
+                    return None
+        return None
+    
     def _build_pandas_filter(self, filters: Optional['FilterParams'] = None) -> pd.Series:
         """将筛选条件转换为pandas布尔索引（动态处理任意字段）"""
         # 延迟导入避免循环依赖
@@ -104,7 +131,9 @@ class DataTable:
                     for num_filter in filter_value.filters:
                         if num_filter.operator and num_filter.value is not None:
                             op = num_filter.operator
-                            val = num_filter.value
+                            val = self._parse_number_value(num_filter.value)
+                            if val is None:
+                                continue
                             if op == '=':
                                 filters_mask.append(self.dataframe[field_name] == val)
                             elif op == '>':
@@ -130,17 +159,18 @@ class DataTable:
                 elif isinstance(filter_value, NumberFilter):
                     if filter_value.operator and filter_value.value is not None:
                         op = filter_value.operator
-                        val = filter_value.value
-                        if op == '=':
-                            mask &= (self.dataframe[field_name] == val)
-                        elif op == '>':
-                            mask &= (self.dataframe[field_name] > val)
-                        elif op == '<':
-                            mask &= (self.dataframe[field_name] < val)
-                        elif op == '>=':
-                            mask &= (self.dataframe[field_name] >= val)
-                        elif op == '<=':
-                            mask &= (self.dataframe[field_name] <= val)
+                        val = self._parse_number_value(filter_value.value)
+                        if val is not None:
+                            if op == '=':
+                                mask &= (self.dataframe[field_name] == val)
+                            elif op == '>':
+                                mask &= (self.dataframe[field_name] > val)
+                            elif op == '<':
+                                mask &= (self.dataframe[field_name] < val)
+                            elif op == '>=':
+                                mask &= (self.dataframe[field_name] >= val)
+                            elif op == '<=':
+                                mask &= (self.dataframe[field_name] <= val)
                 # 处理字典格式（从 JSON 解析来的）
                 elif isinstance(filter_value, dict):
                     if 'filters' in filter_value:
@@ -150,7 +180,9 @@ class DataTable:
                         for num_filter in filter_group.filters:
                             if num_filter.operator and num_filter.value is not None:
                                 op = num_filter.operator
-                                val = num_filter.value
+                                val = self._parse_number_value(num_filter.value)
+                                if val is None:
+                                    continue
                                 if op == '=':
                                     filters_mask.append(self.dataframe[field_name] == val)
                                 elif op == '>':
@@ -178,22 +210,33 @@ class DataTable:
                         num_filter = NumberFilter(**filter_value)
                         if num_filter.operator and num_filter.value is not None:
                             op = num_filter.operator
-                            val = num_filter.value
-                            if op == '=':
-                                mask &= (self.dataframe[field_name] == val)
-                            elif op == '>':
-                                mask &= (self.dataframe[field_name] > val)
-                            elif op == '<':
-                                mask &= (self.dataframe[field_name] < val)
-                            elif op == '>=':
-                                mask &= (self.dataframe[field_name] >= val)
-                            elif op == '<=':
-                                mask &= (self.dataframe[field_name] <= val)
+                            val = self._parse_number_value(num_filter.value)
+                            if val is not None:
+                                if op == '=':
+                                    mask &= (self.dataframe[field_name] == val)
+                                elif op == '>':
+                                    mask &= (self.dataframe[field_name] > val)
+                                elif op == '<':
+                                    mask &= (self.dataframe[field_name] < val)
+                                elif op == '>=':
+                                    mask &= (self.dataframe[field_name] >= val)
+                                elif op == '<=':
+                                    mask &= (self.dataframe[field_name] <= val)
             
             elif col_config.filterType == 'text':
                 # 文本筛选
                 if isinstance(filter_value, str) and filter_value:
-                    mask &= self.dataframe[field_name].astype(str).str.contains(filter_value, case=False, na=False)
+                    # 对于bytes类型字段，需要先转换为16进制字符串再筛选
+                    if col_config.type == 'bytes':
+                        # 将bytes转换为16进制字符串进行筛选
+                        def bytes_to_hex_str(val):
+                            if isinstance(val, bytes):
+                                return ' '.join([f'{b:02X}' for b in val])
+                            return str(val)
+                        hex_series = self.dataframe[field_name].apply(bytes_to_hex_str)
+                        mask &= hex_series.str.contains(filter_value, case=False, na=False)
+                    else:
+                        mask &= self.dataframe[field_name].astype(str).str.contains(filter_value, case=False, na=False)
             
             elif col_config.filterType == 'date':
                 # 日期筛选
@@ -260,6 +303,13 @@ class DataTable:
         
         # 将DataFrame转换为字典列表
         data_list = paginated_df.to_dict('records')
+        
+        # 处理bytes类型字段，转换为16进制字符串用于JSON序列化
+        for record in data_list:
+            for key, value in record.items():
+                if isinstance(value, bytes):
+                    # 将bytes转换为16进制字符串，每个字节之间加空格
+                    record[key] = ' '.join([f'{b:02X}' for b in value])
         
         return {
             "list": data_list,
@@ -348,9 +398,14 @@ class DataTable:
         for col_config in self.columns_config:
             prop = col_config.prop
             if prop in row_record:
+                value = row_record[prop]
+                # 处理bytes类型字段，转换为16进制字符串用于JSON序列化
+                if isinstance(value, bytes):
+                    value = ' '.join([f'{b:02X}' for b in value])
+                
                 detail_item = {
                     "label": col_config.label,
-                    "value": row_record[prop],
+                    "value": value,
                     "detail": col_config.label,
                     "type": col_config.type
                 }
@@ -394,15 +449,71 @@ def generate_columns_config_from_dataframe(df: pd.DataFrame) -> List[ColumnConfi
             # ID字段固定左侧，使用数字筛选
             filter_type = 'number'
             fixed = 'left'
+        elif 'bytes' in col.lower() or 'hex' in col.lower() or 'remark' in col.lower() or 'payload' in col.lower():
+            # 识别bytes类型字段（通过字段名识别）
+            column_type = 'bytes'
+            filter_type = 'text'  # bytes类型使用文本筛选
+            min_width = 200  # bytes类型字段通常需要更宽的显示空间
+        elif 'object' in col_type:
+            # 检查是否为真正的bytes类型
+            sample_value = df[col].dropna().iloc[0] if not df[col].dropna().empty else None
+            if isinstance(sample_value, bytes):
+                column_type = 'bytes'
+                filter_type = 'text'
+                min_width = 200
+            else:
+                # 不是bytes类型，检查是否为字符串类型，然后检查唯一值数量
+                sample_values = df[col].dropna().head(10).tolist()
+                is_hex_string = False
+                if sample_values:
+                    # 检查是否所有样本值都是16进制字符串格式（如 "FF 00 1A" 或 "FF001A"）
+                    hex_pattern = re.compile(r'^([0-9A-Fa-f]{2}[\s]*)+$')
+                    is_hex_string = all(
+                        isinstance(v, str) and (hex_pattern.match(v.replace(' ', '')) or len(v) > 20)
+                        for v in sample_values if v
+                    )
+                    # 如果字段名包含相关关键词，也认为是bytes类型
+                    if is_hex_string or any(keyword in col.lower() for keyword in ['bytes', 'hex', 'binary', 'data']):
+                        column_type = 'bytes'
+                        filter_type = 'text'
+                        min_width = 200
+                    else:
+                        unique_values = df[col].unique().tolist()
+                        if len(unique_values) <= 100:  # 如果唯一值少于100个，提供下拉选项
+                            filter_type = 'multi-select'
+                            options = [str(v) for v in unique_values]
+                        else:
+                            # 唯一值太多，使用文本筛选
+                            filter_type = 'text'
+                else:
+                    filter_type = 'text'
         else:
             # 对于字符串类型，检查唯一值数量
-            if 'object' in col_type or 'string' in col_type:
-                unique_values = df[col].unique().tolist()
-                if len(unique_values) <= 100:  # 如果唯一值少于100个，提供下拉选项
-                    filter_type = 'multi-select'
-                    options = [str(v) for v in unique_values]
+            if 'string' in col_type:
+                # 检查数据内容是否看起来像16进制字符串（bytes的常见表示形式）
+                sample_values = df[col].dropna().head(10).tolist()
+                is_hex_string = False
+                if sample_values:
+                    # 检查是否所有样本值都是16进制字符串格式（如 "FF 00 1A" 或 "FF001A"）
+                    hex_pattern = re.compile(r'^([0-9A-Fa-f]{2}[\s]*)+$')
+                    is_hex_string = all(
+                        isinstance(v, str) and (hex_pattern.match(v.replace(' ', '')) or len(v) > 20)
+                        for v in sample_values if v
+                    )
+                    # 如果字段名包含相关关键词，也认为是bytes类型
+                    if is_hex_string or any(keyword in col.lower() for keyword in ['bytes', 'hex', 'binary', 'data']):
+                        column_type = 'bytes'
+                        filter_type = 'text'
+                        min_width = 200
+                    else:
+                        unique_values = df[col].unique().tolist()
+                        if len(unique_values) <= 100:  # 如果唯一值少于100个，提供下拉选项
+                            filter_type = 'multi-select'
+                            options = [str(v) for v in unique_values]
+                        else:
+                            # 唯一值太多，使用文本筛选
+                            filter_type = 'text'
                 else:
-                    # 唯一值太多，使用文本筛选
                     filter_type = 'text'
             else:
                 filter_type = 'text'

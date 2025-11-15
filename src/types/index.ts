@@ -50,7 +50,7 @@ export interface RowDetailItem {
 export type RowDetail = RowDetailItem[]  // 详情数据是一个列表
 
 // 列配置类型
-export type ColumnType = 'string' | 'number' | 'date' | 'boolean'
+export type ColumnType = 'string' | 'number' | 'date' | 'boolean' | 'bytes'
 export type FilterType = 'text' | 'number' | 'select' | 'multi-select' | 'date' | 'none'
 
 export interface ColumnConfig {
