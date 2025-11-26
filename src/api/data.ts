@@ -123,4 +123,109 @@ export const dataApi = {
       }
     }
   },
+
+  // 添加新数据
+  addData: async (data: TableData | TableData[]): Promise<{ success: boolean; added_count: number; columns_updated: boolean; added_columns: string[] }> => {
+    try {
+      const response = await api.post<ApiResponse<{ success: boolean; added_count: number; columns_updated: boolean; added_columns: string[] }>>('/data/add', {
+        data
+      })
+      if (response.data.success && response.data.data) {
+        return response.data.data
+      } else {
+        throw new Error('API返回数据格式错误')
+      }
+    } catch (error: any) {
+      if (error.response) {
+        throw new Error(error.response.data?.detail || error.response.data?.message || '服务器错误')
+      } else if (error.request) {
+        throw new Error('无法连接到服务器，请确保后端服务已启动')
+      } else {
+        throw error
+      }
+    }
+  },
+
+  // 启动自动添加数据
+  startAutoAdd: async (batchSize: number = 1, interval: number = 0.5): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await api.post<ApiResponse<{ success: boolean; message: string }>>('/data/auto-add/start', {
+        batch_size: batchSize,
+        interval: interval
+      })
+      if (response.data.success) {
+        return response.data.data || { success: true, message: response.data.message || '启动成功' }
+      } else {
+        throw new Error(response.data.message || '启动失败')
+      }
+    } catch (error: any) {
+      if (error.response) {
+        throw new Error(error.response.data?.detail || error.response.data?.message || '服务器错误')
+      } else if (error.request) {
+        throw new Error('无法连接到服务器，请确保后端服务已启动')
+      } else {
+        throw error
+      }
+    }
+  },
+
+  // 停止自动添加数据
+  stopAutoAdd: async (): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await api.post<ApiResponse<{ success: boolean; message: string }>>('/data/auto-add/stop')
+      if (response.data.success) {
+        return response.data.data || { success: true, message: response.data.message || '停止成功' }
+      } else {
+        throw new Error(response.data.message || '停止失败')
+      }
+    } catch (error: any) {
+      if (error.response) {
+        throw new Error(error.response.data?.detail || error.response.data?.message || '服务器错误')
+      } else if (error.request) {
+        throw new Error('无法连接到服务器，请确保后端服务已启动')
+      } else {
+        throw error
+      }
+    }
+  },
+
+  // 获取自动添加状态
+  getAutoAddStatus: async (): Promise<{ running: boolean }> => {
+    try {
+      const response = await api.get<ApiResponse<{ running: boolean }>>('/data/auto-add/status')
+      if (response.data.success && response.data.data) {
+        return response.data.data
+      } else {
+        throw new Error('API返回数据格式错误')
+      }
+    } catch (error: any) {
+      if (error.response) {
+        throw new Error(error.response.data?.detail || error.response.data?.message || '服务器错误')
+      } else if (error.request) {
+        throw new Error('无法连接到服务器，请确保后端服务已启动')
+      } else {
+        throw error
+      }
+    }
+  },
+
+  // 获取筛选选项
+  getFilterOptions: async (): Promise<Record<string, string[]>> => {
+    try {
+      const response = await api.get<ApiResponse<Record<string, string[]>>>('/data/filters')
+      if (response.data.success && response.data.data) {
+        return response.data.data
+      } else {
+        throw new Error('API返回数据格式错误')
+      }
+    } catch (error: any) {
+      if (error.response) {
+        throw new Error(error.response.data?.detail || error.response.data?.message || '服务器错误')
+      } else if (error.request) {
+        throw new Error('无法连接到服务器，请确保后端服务已启动')
+      } else {
+        throw error
+      }
+    }
+  },
 }

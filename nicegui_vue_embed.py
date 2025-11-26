@@ -11,6 +11,7 @@ import time
 import uvicorn
 from fastapi.staticfiles import StaticFiles
 import logging
+import httpx
 
 # 配置日志
 logging.basicConfig(
@@ -169,7 +170,7 @@ def create_data_table_widget(container_id: str = 'root'):
     # 创建 Vue 应用挂载容器
     container = ui.html(f'''
         <div id="{container_id}" style="width: 100%; height: 100%;"></div>
-    ''', sanitize=False).classes('w-full').style('height: calc(100vh - 250px); min-height: 600px;')
+    ''').classes('w-full').style('height: calc(100vh - 250px); min-height: 600px;')
     
     # 加载 Vue 应用的 JavaScript
     # 使用 ui.add_body_html 确保脚本在 DOM 加载后执行
@@ -278,6 +279,68 @@ def create_data_table_widget(container_id: str = 'root'):
 def data_table_page():
     """大数据量表格页面 - 作为控件嵌入（保留原有路由）"""
     ui.page_title('大数据量表格系统')
+    
+    # 添加控制按钮区域
+    with ui.row().classes('w-full items-center gap-4 p-4 bg-gray-50'):
+        auto_add_button = ui.button('开始自动添加', icon='play_arrow')
+        auto_add_status = ui.label('状态：未运行').classes('text-gray-600')
+        
+        # 检查当前状态
+        async def check_status():
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    response = await client.get('http://localhost:3001/api/data/auto-add/status')
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data.get('success') and data.get('data', {}).get('running'):
+                            auto_add_button.text = '停止自动添加'
+                            auto_add_button.props('color=negative')
+                            auto_add_status.text = '状态：运行中（每0.5秒添加5条）'
+                        else:
+                            auto_add_button.text = '开始自动添加'
+                            auto_add_button.props('color=positive')
+                            auto_add_status.text = '状态：未运行'
+            except Exception as e:
+                logger.warning(f"检查自动添加状态失败: {e}")
+        
+        # 切换自动添加状态
+        async def toggle_auto_add():
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    # 先检查状态
+                    status_response = await client.get('http://localhost:3001/api/data/auto-add/status')
+                    if status_response.status_code == 200:
+                        status_data = status_response.json()
+                        is_running = status_data.get('success') and status_data.get('data', {}).get('running', False)
+                        
+                        if is_running:
+                            # 停止
+                            response = await client.post('http://localhost:3001/api/data/auto-add/stop')
+                            if response.status_code == 200:
+                                auto_add_button.text = '开始自动添加'
+                                auto_add_button.props('color=positive')
+                                auto_add_status.text = '状态：已停止'
+                                ui.notify('已停止自动添加数据', type='info')
+                        else:
+                            # 启动（每0.5秒添加5条）
+                            response = await client.post(
+                                'http://localhost:3001/api/data/auto-add/start',
+                                json={'batch_size': 5, 'interval': 0.5}
+                            )
+                            if response.status_code == 200:
+                                auto_add_button.text = '停止自动添加'
+                                auto_add_button.props('color=negative')
+                                auto_add_status.text = '状态：运行中（每0.5秒添加5条）'
+                                ui.notify('已启动自动添加数据（每0.5秒添加5条）', type='positive')
+            except Exception as e:
+                ui.notify(f'操作失败: {str(e)}', type='negative')
+                logger.error(f"切换自动添加状态失败: {e}")
+        
+        auto_add_button.on('click', toggle_auto_add)
+        
+        # 初始化时检查状态
+        ui.timer(1.0, check_status, once=True)
+    
     create_data_table_widget('root')
 
 
@@ -340,6 +403,67 @@ def main_page():
         
         # 数据表格 Tab
         with ui.tab_panel(table_tab):
+            # 添加控制按钮区域
+            with ui.row().classes('w-full items-center gap-4 p-4 bg-gray-50'):
+                auto_add_button_tab = ui.button('开始自动添加', icon='play_arrow')
+                auto_add_status_tab = ui.label('状态：未运行').classes('text-gray-600')
+                
+                # 检查当前状态
+                async def check_status_tab():
+                    try:
+                        async with httpx.AsyncClient(timeout=5.0) as client:
+                            response = await client.get('http://localhost:3001/api/data/auto-add/status')
+                            if response.status_code == 200:
+                                data = response.json()
+                                if data.get('success') and data.get('data', {}).get('running'):
+                                    auto_add_button_tab.text = '停止自动添加'
+                                    auto_add_button_tab.props('color=negative')
+                                    auto_add_status_tab.text = '状态：运行中（每0.5秒添加5条）'
+                                else:
+                                    auto_add_button_tab.text = '开始自动添加'
+                                    auto_add_button_tab.props('color=positive')
+                                    auto_add_status_tab.text = '状态：未运行'
+                    except Exception as e:
+                        logger.warning(f"检查自动添加状态失败: {e}")
+                
+                # 切换自动添加状态
+                async def toggle_auto_add_tab():
+                    try:
+                        async with httpx.AsyncClient(timeout=5.0) as client:
+                            # 先检查状态
+                            status_response = await client.get('http://localhost:3001/api/data/auto-add/status')
+                            if status_response.status_code == 200:
+                                status_data = status_response.json()
+                                is_running = status_data.get('success') and status_data.get('data', {}).get('running', False)
+                                
+                                if is_running:
+                                    # 停止
+                                    response = await client.post('http://localhost:3001/api/data/auto-add/stop')
+                                    if response.status_code == 200:
+                                        auto_add_button_tab.text = '开始自动添加'
+                                        auto_add_button_tab.props('color=positive')
+                                        auto_add_status_tab.text = '状态：已停止'
+                                        ui.notify('已停止自动添加数据', type='info')
+                                else:
+                                    # 启动（每0.5秒添加5条）
+                                    response = await client.post(
+                                        'http://localhost:3001/api/data/auto-add/start',
+                                        json={'batch_size': 5, 'interval': 0.5}
+                                    )
+                                    if response.status_code == 200:
+                                        auto_add_button_tab.text = '停止自动添加'
+                                        auto_add_button_tab.props('color=negative')
+                                        auto_add_status_tab.text = '状态：运行中（每0.5秒添加5条）'
+                                        ui.notify('已启动自动添加数据（每0.5秒添加5条）', type='positive')
+                    except Exception as e:
+                        ui.notify(f'操作失败: {str(e)}', type='negative')
+                        logger.error(f"切换自动添加状态失败: {e}")
+                
+                auto_add_button_tab.on('click', toggle_auto_add_tab)
+                
+                # 初始化时检查状态
+                ui.timer(1.0, check_status_tab, once=True)
+            
             # 先获取 js_path，以便在 tab 切换时使用
             index_html_path = dist_path / 'index.html'
             js_path_for_tab = None

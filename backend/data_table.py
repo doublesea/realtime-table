@@ -455,6 +455,148 @@ class DataTable:
                 detail.append(detail_item)
         
         return detail
+    
+    def add_data(self, new_data: Union[Dict[str, Any], List[Dict[str, Any]]]) -> Dict[str, Any]:
+        """动态添加新数据到DataFrame
+        
+        Args:
+            new_data: 新数据，可以是单个字典或字典列表
+        
+        Returns:
+            包含添加结果和更新后的列配置的字典
+        """
+        # 确保new_data是列表格式
+        if isinstance(new_data, dict):
+            new_data = [new_data]
+        
+        if not new_data:
+            raise ValueError("新数据不能为空")
+        
+        # 转换为DataFrame
+        new_df = pd.DataFrame(new_data)
+        
+        # 检查是否有新字段（不在现有DataFrame中的字段）
+        existing_columns = set(self.dataframe.columns)
+        new_columns = set(new_df.columns)
+        added_columns = new_columns - existing_columns
+        
+        # 如果新数据中有新字段，需要更新列配置
+        columns_updated = False
+        if added_columns:
+            # 为新字段生成列配置（generate_columns_config_from_dataframe 定义在本文件末尾）
+            # 直接调用，无需导入
+            
+            # 创建一个临时DataFrame，只包含新字段，用于生成列配置
+            temp_df = new_df[list(added_columns)]
+            new_columns_config = generate_columns_config_from_dataframe(temp_df)
+            
+            # 将新列配置添加到现有配置中
+            self.columns_config.extend(new_columns_config)
+            columns_updated = True
+        
+        # 确保新数据的列与现有DataFrame的列对齐
+        # 对于新数据中不存在的列，填充None
+        for col in existing_columns:
+            if col not in new_df.columns:
+                new_df[col] = None
+        
+        # 对于现有DataFrame中不存在的列（新字段），在现有DataFrame中填充None
+        for col in added_columns:
+            if col not in self.dataframe.columns:
+                self.dataframe[col] = None
+        
+        # 确保列顺序一致
+        new_df = new_df[self.dataframe.columns]
+        
+        # 处理ID字段：如果新数据没有ID或ID为None，自动生成
+        if 'id' in self.dataframe.columns:
+            max_id = self.dataframe['id'].max() if len(self.dataframe) > 0 else 0
+            for idx, row in new_df.iterrows():
+                if pd.isna(row.get('id')) or row.get('id') is None:
+                    max_id += 1
+                    new_df.at[idx, 'id'] = max_id
+        
+        # 处理特殊类型字段
+        for col in new_df.columns:
+            col_config = next((c for c in self.columns_config if c.prop == col), None)
+            if col_config:
+                if col_config.type == 'bytes':
+                    # 如果字段类型是bytes，但新数据是字符串，尝试转换
+                    for idx, val in new_df[col].items():
+                        if isinstance(val, str):
+                            # 尝试将16进制字符串转换为bytes
+                            try:
+                                # 移除空格并转换为bytes
+                                hex_str = val.replace(' ', '').replace('-', '')
+                                new_df.at[idx, col] = bytes.fromhex(hex_str)
+                            except ValueError:
+                                # 如果转换失败，保持原值
+                                pass
+                elif col == 'ts' and col_config.type == 'date':
+                    # 如果ts字段是字符串，尝试转换为时间戳
+                    from datetime import datetime
+                    for idx, val in new_df[col].items():
+                        if pd.isna(val) or val is None:
+                            continue
+                        if isinstance(val, str) and val.strip():
+                            try:
+                                # 尝试解析日期时间字符串（支持多种格式）
+                                val_stripped = val.strip()
+                                # 尝试完整格式：YYYY-MM-DD HH:MM:SS.ffffff
+                                try:
+                                    dt = datetime.strptime(val_stripped, '%Y-%m-%d %H:%M:%S.%f')
+                                    new_df.at[idx, col] = dt.timestamp()
+                                except ValueError:
+                                    # 尝试格式：YYYY-MM-DD HH:MM:SS
+                                    try:
+                                        dt = datetime.strptime(val_stripped, '%Y-%m-%d %H:%M:%S')
+                                        new_df.at[idx, col] = dt.timestamp()
+                                    except ValueError:
+                                        # 尝试格式：YYYY-MM-DD
+                                        try:
+                                            dt = datetime.strptime(val_stripped, '%Y-%m-%d')
+                                            new_df.at[idx, col] = dt.timestamp()
+                                        except ValueError:
+                                            # 如果都失败，尝试作为数字（可能是时间戳字符串）
+                                            try:
+                                                new_df.at[idx, col] = float(val_stripped)
+                                            except ValueError:
+                                                pass
+                            except Exception:
+                                pass
+        
+        # 将新数据追加到DataFrame
+        self.dataframe = pd.concat([self.dataframe, new_df], ignore_index=True)
+        
+        # 更新列配置中的筛选选项（对于 multi-select 和 select 类型）
+        # 重新计算唯一值并更新 options
+        for col_config in self.columns_config:
+            if col_config.filterType in ['multi-select', 'select']:
+                try:
+                    # 获取该列的唯一值
+                    unique_values = self.dataframe[col_config.prop].dropna().unique().tolist()
+                    # 转换为字符串并排序
+                    options = sorted([str(v) for v in unique_values])
+                    # 如果唯一值数量不超过100，更新 options
+                    if len(options) <= 100:
+                        col_config.options = options
+                    else:
+                        # 如果超过100个，清空 options，使用文本筛选
+                        col_config.options = None
+                        col_config.filterType = 'text'
+                except Exception as e:
+                    # 如果更新失败，保持原有配置
+                    pass
+        
+        # 验证列配置
+        self._validate_columns()
+        
+        return {
+            "success": True,
+            "added_count": len(new_df),
+            "columns_updated": columns_updated,
+            "added_columns": list(added_columns) if added_columns else []
+        }
 
 
 def generate_columns_config_from_dataframe(df: pd.DataFrame) -> List[ColumnConfig]:

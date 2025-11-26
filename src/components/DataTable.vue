@@ -14,14 +14,17 @@
 
     <!-- 数据表格容器 -->
     <div class="table-container">
+      <!-- 轻量级加载指示器（顶部进度条） -->
+      <div v-if="silentLoading" class="silent-loading-bar"></div>
       <el-table
         ref="tableRef"
         :data="tableData"
-        v-loading="loading"
+        v-loading="loading && !silentLoading"
         stripe
         border
         height="100%"
         style="width: 100%; table-layout: fixed"
+        class="table-with-transition"
       @sort-change="handleSortChange"
       @row-click="handleRowClick"
       @expand-change="handleExpandChange"
@@ -333,6 +336,92 @@
       />
     </div>
 
+    <!-- 添加数据弹窗 -->
+    <el-dialog
+      v-model="showAddDataDialog"
+      title="添加数据"
+      width="600px"
+      :close-on-click-modal="false"
+    >
+      <div class="add-data-content">
+        <el-form :model="newDataForm" label-width="120px" ref="newDataFormRef">
+          <el-form-item
+            v-for="col in orderedColumns"
+            :key="col.prop"
+            :label="col.label"
+            :prop="col.prop"
+          >
+            <el-input
+              v-if="col.type === 'string' || (col.filterType === 'text' && col.type !== 'number' && col.type !== 'date' && col.type !== 'bytes')"
+              v-model="newDataForm[col.prop]"
+              :placeholder="`请输入${col.label}`"
+              clearable
+            />
+            <el-input-number
+              v-else-if="col.type === 'number'"
+              v-model="newDataForm[col.prop]"
+              :placeholder="`请输入${col.label}`"
+              style="width: 100%"
+            />
+            <el-date-picker
+              v-else-if="col.type === 'date' && col.prop !== 'ts'"
+              v-model="newDataForm[col.prop]"
+              type="date"
+              :placeholder="`请选择${col.label}`"
+              format="YYYY-MM-DD"
+              value-format="YYYY-MM-DD"
+              style="width: 100%"
+            />
+            <el-input
+              v-else-if="col.prop === 'ts'"
+              v-model="newDataForm[col.prop]"
+              :placeholder="'格式: YYYY-MM-DD HH:MM:SS.ffffff 或 YYYY-MM-DD'"
+              clearable
+            />
+            <el-input
+              v-else-if="col.type === 'bytes'"
+              v-model="newDataForm[col.prop]"
+              :placeholder="'16进制格式，如: FF 00 1A'"
+              clearable
+            />
+            <el-select
+              v-else-if="col.filterType === 'multi-select' || col.filterType === 'select'"
+              v-model="newDataForm[col.prop]"
+              :placeholder="`请选择${col.label}`"
+              clearable
+              style="width: 100%"
+            >
+              <el-option
+                v-for="option in getFilterOptions(col.prop)"
+                :key="option"
+                :label="option"
+                :value="option"
+              />
+            </el-select>
+            <el-input
+              v-else
+              v-model="newDataForm[col.prop]"
+              :placeholder="`请输入${col.label}`"
+              clearable
+            />
+          </el-form-item>
+        </el-form>
+        <div style="margin-top: 16px; color: #909399; font-size: 12px;">
+          <p>提示：</p>
+          <ul style="margin: 8px 0; padding-left: 20px;">
+            <li>ID字段会自动生成，无需填写</li>
+            <li>如果字段为空，将使用默认值或留空</li>
+            <li>时间戳字段(ts)支持日期时间格式</li>
+            <li>Bytes类型字段支持16进制格式（如: FF 00 1A）</li>
+          </ul>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="showAddDataDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleAddData" :loading="addingData">确定</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 列设置弹窗 -->
     <el-dialog
       v-model="showColumnSettings"
@@ -380,16 +469,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted, nextTick, computed } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, nextTick, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search, Refresh, Delete, Setting, ArrowDown, ArrowUp, Sort, Filter, Rank } from '@element-plus/icons-vue'
 import { TableData, FilterParams, NumberFilter, RowDetail, ColumnConfig } from '../types'
 import { dataApi } from '../api/data'
 import type { ElTable } from 'element-plus'
+import type { FormInstance } from 'element-plus'
 
 // 响应式数据
 const tableData = ref<TableData[]>([])
 const loading = ref(false)
+const silentLoading = ref(false) // 静默加载（不显示遮罩）
 const selectedRowId = ref<number | null>(null) // 选中的行ID
 const tableRef = ref<InstanceType<typeof ElTable>>() // 表格引用
 const filterOptions = reactive<Record<string, string[]>>({})
@@ -413,6 +504,16 @@ const columnWidths = reactive<Record<string, number>>({})
 
 // 列设置弹窗显示状态
 const showColumnSettings = ref(false)
+
+// 添加数据相关状态
+const showAddDataDialog = ref(false)
+const addingData = ref(false)
+const newDataForm = reactive<Record<string, any>>({})
+const newDataFormRef = ref<FormInstance>()
+
+// 自动添加数据相关状态
+const autoAddRunning = ref(false)
+const autoAddLoading = ref(false)
 
 // 拖拽相关状态
 const dragIndex = ref<number | null>(null)
@@ -534,10 +635,10 @@ const pagination = reactive({
   total: 0
 })
 
-// 排序状态
+// 排序状态（默认按ID升序，最新的在后）
 const sortInfo = reactive({
-  prop: undefined as string | undefined,
-  order: undefined as 'ascending' | 'descending' | null | undefined
+  prop: 'id' as string | undefined,
+  order: 'ascending' as 'ascending' | 'descending' | null | undefined
 })
 
 // 默认列配置（当后端加载失败时使用，现在为空数组，因为字段应该是动态的）
@@ -551,6 +652,8 @@ const loadColumnsConfig = async () => {
     columnConfig.value = config.columns
     initColumnVisible(config.columns)
     initFilterForm(config.columns)
+    // 加载筛选选项
+    await refreshFilterOptions()
   } catch (error) {
     ElMessage.error('加载列配置失败，使用默认配置')
     // 使用默认列配置
@@ -561,8 +664,13 @@ const loadColumnsConfig = async () => {
 }
 
 // 加载数据
-const loadData = async (keepSelectedRow = false) => {
-  loading.value = true
+const loadData = async (keepSelectedRow = false, silent = false) => {
+  // 如果是静默加载，只显示顶部进度条，不显示遮罩
+  if (silent) {
+    silentLoading.value = true
+  } else {
+    loading.value = true
+  }
   try {
     const filters: FilterParams = {}
     
@@ -647,12 +755,16 @@ const loadData = async (keepSelectedRow = false) => {
       }
     }
 
+    // 如果没有指定排序，默认按ID升序（最新的在后）
+    const sortBy = sortInfo.prop || 'id'
+    const sortOrder = sortInfo.order || 'ascending'
+    
     const requestParams = {
       page: targetPage,
       pageSize: pagination.pageSize,
       filters: requestFilters,
-      sortBy: sortInfo.prop,
-      sortOrder: sortInfo.order
+      sortBy: sortBy,
+      sortOrder: sortOrder
     }
     
     const response = await dataApi.getList(requestParams)
@@ -662,9 +774,68 @@ const loadData = async (keepSelectedRow = false) => {
     pagination.page = response.page
     pagination.pageSize = response.pageSize
     
-    // 数据加载完成后，如果选中了行，需要恢复选中状态
-    if (selectedRowId.value !== null && shouldKeepSelected) {
-      await nextTick()
+    // 调试信息：如果是静默刷新，输出日志
+    if (silent) {
+      console.log(`[自动刷新] 总数据: ${pagination.total}, 当前页: ${pagination.page}/${Math.ceil(pagination.total / pagination.pageSize)}, 当前页数据量: ${tableData.value.length}`)
+    }
+    
+    // 数据加载完成后
+    await nextTick()
+    
+    // 如果是静默刷新（自动刷新），跳转到最后一页并选中最后一行
+    if (silent) {
+      // 计算总页数
+      const totalPages = Math.ceil(pagination.total / pagination.pageSize)
+      console.log(`[自动刷新] 计算总页数: ${totalPages}, 当前页: ${pagination.page}, 总数据: ${pagination.total}, 每页: ${pagination.pageSize}`)
+      
+      if (totalPages > 0 && pagination.page !== totalPages) {
+        // 如果不在最后一页，跳转到最后一页并重新加载
+        console.log(`[自动刷新] 跳转到最后一页: ${totalPages}`)
+        pagination.page = totalPages
+        // 重新请求最后一页的数据
+        const lastPageResponse = await dataApi.getList({
+          page: totalPages,
+          pageSize: pagination.pageSize,
+          filters: requestFilters,
+          sortBy: sortBy,
+          sortOrder: sortOrder
+        })
+        tableData.value = lastPageResponse.list
+        pagination.total = lastPageResponse.total
+        pagination.page = lastPageResponse.page
+        pagination.pageSize = lastPageResponse.pageSize
+        
+        console.log(`[自动刷新] 最后一页数据加载完成，数据量: ${tableData.value.length}`)
+        
+        // 选中最后一行
+        await nextTick()
+        if (tableData.value.length > 0) {
+          const lastRow = tableData.value[tableData.value.length - 1]
+          console.log(`[自动刷新] 选中最后一行，ID: ${lastRow.id}`)
+          selectedRowId.value = lastRow.id
+          if (tableRef.value) {
+            tableRef.value.setCurrentRow(lastRow)
+          }
+          setTimeout(() => {
+            scrollToLastRow()
+          }, 100)
+        }
+        return
+      }
+      // 已经在最后一页，选中最后一行
+      if (tableData.value.length > 0) {
+        const lastRow = tableData.value[tableData.value.length - 1]
+        console.log(`[自动刷新] 已在最后一页，选中最后一行，ID: ${lastRow.id}`)
+        selectedRowId.value = lastRow.id
+        if (tableRef.value) {
+          tableRef.value.setCurrentRow(lastRow)
+        }
+        setTimeout(() => {
+          scrollToLastRow()
+        }, 100)
+      }
+    } else if (selectedRowId.value !== null && shouldKeepSelected) {
+      // 如果选中了行且需要保持选中状态，恢复选中状态
       // 查找选中行在当前页数据中的位置
       const selectedRow = tableData.value.find(row => row.id === selectedRowId.value)
       if (selectedRow) {
@@ -693,6 +864,7 @@ const loadData = async (keepSelectedRow = false) => {
     ElMessage.error(`加载数据失败: ${errorMsg}`)
   } finally {
     loading.value = false
+    silentLoading.value = false
   }
 }
 
@@ -795,6 +967,60 @@ const scrollToSelectedRow = () => {
             behavior: 'smooth'
           })
         }
+      }
+    } catch (fallbackError) {
+      // 备用方法也失败，静默处理
+    }
+  }
+}
+
+// 滚动到最后一行
+const scrollToLastRow = () => {
+  if (!tableRef.value || tableData.value.length === 0) {
+    return
+  }
+  
+  try {
+    const tableEl = tableRef.value.$el
+    if (!tableEl) {
+      return
+    }
+    
+    // 获取表格体容器
+    const tableBodyWrapper = tableEl.querySelector('.el-table__body-wrapper') as HTMLElement
+    if (!tableBodyWrapper) {
+      return
+    }
+    
+    // 获取表格行元素
+    const rows = tableBodyWrapper.querySelectorAll('.el-table__row')
+    if (rows.length === 0) {
+      return
+    }
+    
+    // 获取最后一行的DOM元素
+    const lastRow = rows[rows.length - 1] as HTMLElement
+    if (!lastRow) {
+      return
+    }
+    
+    // 滚动到最后一行
+    lastRow.scrollIntoView({
+      behavior: 'smooth',
+      block: 'end', // 让最后一行在可视区域底部
+      inline: 'nearest'
+    })
+  } catch (error) {
+    // 如果scrollIntoView失败，尝试使用scrollTo方法
+    try {
+      const tableEl = tableRef.value.$el
+      const tableBodyWrapper = tableEl?.querySelector('.el-table__body-wrapper') as HTMLElement
+      if (tableBodyWrapper) {
+        // 直接滚动到底部
+        tableBodyWrapper.scrollTo({
+          top: tableBodyWrapper.scrollHeight,
+          behavior: 'smooth'
+        })
       }
     } catch (fallbackError) {
       // 备用方法也失败，静默处理
@@ -1028,9 +1254,9 @@ const handleReset = () => {
   
   // 同步到筛选表单并刷新
   syncFilterInputsToForm()
-  // 重置排序
-  sortInfo.prop = undefined
-  sortInfo.order = undefined
+  // 重置排序为默认值（ID升序，最新的在后）
+  sortInfo.prop = 'id'
+  sortInfo.order = 'ascending'
   pagination.page = 1
   selectedRowId.value = null // 重置时清除选中状态
   loadData(false)
@@ -1062,9 +1288,9 @@ const handleSortChange = ({ column, prop, order }: any) => {
     sortInfo.prop = prop
     sortInfo.order = order === 'asc' ? 'ascending' : (order === 'desc' ? 'descending' : order)
   } else {
-    // 清除排序
-    sortInfo.prop = undefined
-    sortInfo.order = undefined
+    // 清除排序时，恢复默认排序（ID升序，最新的在后）
+    sortInfo.prop = 'id'
+    sortInfo.order = 'ascending'
   }
   
   // 重置到第一页
@@ -1306,6 +1532,21 @@ const getFilterOptions = (prop: string): string[] => {
   return []
 }
 
+// 刷新筛选选项（从后端获取最新的筛选选项）
+const refreshFilterOptions = async () => {
+  try {
+    const options = await dataApi.getFilterOptions()
+    // 更新 filterOptions
+    Object.keys(options).forEach(prop => {
+      filterOptions[prop] = options[prop]
+    })
+    console.log('[筛选选项] 已刷新筛选选项:', options)
+  } catch (error) {
+    console.error('[筛选选项] 刷新筛选选项失败:', error)
+    // 失败时不影响主流程，使用列配置中的 options
+  }
+}
+
 // 获取筛选弹窗宽度
 const getFilterPopoverWidth = (filterType: string): number => {
   switch (filterType) {
@@ -1363,6 +1604,299 @@ const initTableWidth = () => {
   })
 }
 
+// 处理添加数据
+const handleAddData = async () => {
+  if (!newDataFormRef.value) return
+  
+  // 验证表单
+  try {
+    await newDataFormRef.value.validate()
+  } catch (error) {
+    return
+  }
+  
+  addingData.value = true
+  try {
+    // 准备新数据，移除空值（除了允许为空的字段）
+    const dataToAdd: Record<string, any> = {}
+    orderedColumns.value.forEach(col => {
+      const value = newDataForm[col.prop]
+      // ID字段不包含在提交数据中（会自动生成）
+      if (col.prop === 'id') {
+        return
+      }
+      // 如果值不为空，添加到提交数据中
+      if (value !== undefined && value !== null && value !== '') {
+        dataToAdd[col.prop] = value
+      }
+    })
+    
+    // 调用API添加数据
+    const result = await dataApi.addData(dataToAdd)
+    
+    ElMessage.success(`成功添加 ${result.added_count} 条数据`)
+    
+    // 如果有新字段，重新加载列配置
+    if (result.columns_updated && result.added_columns.length > 0) {
+      ElMessage.info(`检测到新字段: ${result.added_columns.join(', ')}，正在更新列配置...`)
+      await loadColumnsConfig()
+      // 重新初始化筛选表单
+      initFilterForm(columnConfig.value)
+    }
+    
+    // 关闭对话框
+    showAddDataDialog.value = false
+    
+    // 清空表单
+    Object.keys(newDataForm).forEach(key => {
+      delete newDataForm[key]
+    })
+    
+    // 刷新数据（保持当前筛选条件和分页）
+    await loadData(false)
+  } catch (error: any) {
+    const errorMsg = error?.response?.data?.detail || error?.message || '添加数据失败'
+    ElMessage.error(`添加数据失败: ${errorMsg}`)
+  } finally {
+    addingData.value = false
+  }
+}
+
+// 监听添加数据对话框打开，初始化表单
+const initAddDataForm = () => {
+  // 清空现有表单数据
+  Object.keys(newDataForm).forEach(key => {
+    delete newDataForm[key]
+  })
+  
+  // 根据列配置初始化表单
+  orderedColumns.value.forEach(col => {
+    // ID字段不显示在表单中（会自动生成）
+    if (col.prop === 'id') {
+      return
+    }
+    // 根据字段类型设置默认值
+    if (col.type === 'number') {
+      newDataForm[col.prop] = undefined
+    } else if (col.filterType === 'multi-select') {
+      newDataForm[col.prop] = []
+    } else {
+      newDataForm[col.prop] = undefined
+    }
+  })
+}
+
+// 监听对话框显示状态
+watch(showAddDataDialog, (newVal) => {
+  if (newVal) {
+    initAddDataForm()
+  }
+})
+
+// 处理自动添加数据
+const handleToggleAutoAdd = async () => {
+  autoAddLoading.value = true
+  try {
+    if (autoAddRunning.value) {
+      // 停止自动添加
+      await dataApi.stopAutoAdd()
+      autoAddRunning.value = false
+      
+      // 立即清除自动刷新定时器
+      if (autoRefreshTimer) {
+        clearInterval(autoRefreshTimer)
+        autoRefreshTimer = null
+        console.log('[停止] 已清除自动刷新定时器')
+      }
+      
+      // 重置静默加载状态
+      silentLoading.value = false
+      
+      // 重新启动状态检查定时器（以便检测下次启动）
+      startStatusCheck()
+      
+      ElMessage.success('已停止自动添加数据')
+    } else {
+      // 启动自动添加（每0.5秒添加5条数据）
+      await dataApi.startAutoAdd(5, 0.5)
+      autoAddRunning.value = true
+      ElMessage.success('已启动自动添加数据（每0.5秒添加5条）')
+      
+      // 启动定时刷新（会立即执行一次刷新，然后每0.5秒刷新一次）
+      startAutoRefresh()
+    }
+  } catch (error: any) {
+    const errorMsg = error?.message || '操作失败'
+    ElMessage.error(`操作失败: ${errorMsg}`)
+  } finally {
+    autoAddLoading.value = false
+  }
+}
+
+// 自动刷新定时器
+let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
+
+const startAutoRefresh = () => {
+  // 清除旧的定时器
+  if (autoRefreshTimer) {
+    clearInterval(autoRefreshTimer)
+    console.log('[自动刷新] 清除旧的定时器')
+  }
+  
+  console.log('[自动刷新] 启动自动刷新定时器（每0.5秒刷新一次）')
+  
+  // 立即执行一次刷新，不等待定时器
+  const performRefresh = async () => {
+    if (!autoAddRunning.value) {
+      return
+    }
+    console.log('[自动刷新] 立即刷新数据...')
+    try {
+        await loadData(false, true) // 不保持选中行，使用静默模式
+        // 刷新筛选选项
+        await refreshFilterOptions()
+        console.log('[自动刷新] 数据刷新完成')
+    } catch (error) {
+      console.error('[自动刷新] 刷新失败:', error)
+    }
+  }
+  
+  // 立即执行一次刷新
+  performRefresh()
+  
+  // 每0.5秒刷新一次数据（使用静默模式，不显示遮罩），与数据添加频率同步
+  autoRefreshTimer = setInterval(async () => {
+    // 每次刷新前先检查自动添加状态（因为可能在Python侧启动）
+    let shouldContinue = false
+    try {
+      const status = await dataApi.getAutoAddStatus()
+      const wasRunning = autoAddRunning.value
+      autoAddRunning.value = status.running
+      
+      // 如果状态从停止变为运行，记录日志
+      if (!wasRunning && status.running) {
+        console.log('[自动刷新] 检测到自动添加已启动')
+      }
+      
+      // 如果状态已停止，立即清除定时器并返回
+      if (!status.running) {
+        console.log('[自动刷新] 检测到自动添加已停止，立即清除定时器')
+        if (autoRefreshTimer) {
+          clearInterval(autoRefreshTimer)
+          autoRefreshTimer = null
+        }
+        // 重置静默加载状态
+        silentLoading.value = false
+        // 重新启动状态检查定时器（以便检测下次启动）
+        startStatusCheck()
+        return // 立即返回，不再执行后续刷新
+      }
+      
+      shouldContinue = true
+    } catch (error) {
+      console.error('[自动刷新] 检查状态失败:', error)
+      // 如果检查失败，但当前状态显示运行中，继续刷新（避免网络问题导致停止）
+      shouldContinue = autoAddRunning.value
+    }
+    
+    // 只有在确认运行中时才刷新
+    if (shouldContinue && autoAddRunning.value) {
+      // 静默刷新，自动跳转到最后一页并选中最后一行
+      console.log('[自动刷新] 开始刷新数据... (autoAddRunning:', autoAddRunning.value, ')')
+      try {
+        await loadData(false, true) // 不保持选中行，使用静默模式
+        // 刷新筛选选项
+        await refreshFilterOptions()
+        console.log('[自动刷新] 数据刷新完成')
+      } catch (error) {
+        console.error('[自动刷新] 刷新失败:', error)
+      }
+    }
+  }, 500) // 每0.5秒刷新一次，与数据添加频率同步
+}
+
+// 检查自动添加状态
+const checkAutoAddStatus = async () => {
+  try {
+    console.log('[初始化] 检查自动添加状态...')
+    const status = await dataApi.getAutoAddStatus()
+    console.log('[初始化] 自动添加状态:', status)
+    autoAddRunning.value = status.running
+    if (status.running) {
+      console.log('[初始化] 自动添加正在运行，启动自动刷新')
+      startAutoRefresh()
+      // 不需要启动状态检查，因为自动刷新定时器会检查状态
+    } else {
+      console.log('[初始化] 自动添加未运行 - 请在NiceGUI页面点击"开始自动添加"按钮启动')
+      // 只在未运行时启动状态检查定时器
+    }
+  } catch (error) {
+    console.error('[初始化] 检查自动添加状态失败:', error)
+    // 忽略错误，不影响主流程
+  }
+}
+
+// 定期检查自动添加状态的定时器
+let statusCheckTimer: ReturnType<typeof setInterval> | null = null
+
+const startStatusCheck = () => {
+  // 清除旧的定时器
+  if (statusCheckTimer) {
+    clearInterval(statusCheckTimer)
+    statusCheckTimer = null
+  }
+  
+  // 只在自动添加未运行时才启动状态检查定时器
+  // 如果已经在运行，则不需要状态检查（因为自动刷新定时器会检查状态）
+  if (autoAddRunning.value) {
+    console.log('[状态检查] 自动添加已在运行，无需启动状态检查定时器')
+    return
+  }
+  
+  console.log('[状态检查] 启动状态检查定时器（每0.5秒检查一次，仅在未运行时检查）')
+  
+  // 每0.5秒检查一次自动添加状态（因为可能在Python侧启动），缩短检测延迟
+  statusCheckTimer = setInterval(async () => {
+    // 如果自动添加已经在运行，停止状态检查（自动刷新定时器会接管）
+    if (autoAddRunning.value) {
+      console.log('[状态检查] 自动添加已在运行，停止状态检查定时器')
+      if (statusCheckTimer) {
+        clearInterval(statusCheckTimer)
+        statusCheckTimer = null
+      }
+      return
+    }
+    
+    try {
+      const status = await dataApi.getAutoAddStatus()
+      const wasRunning = autoAddRunning.value
+      autoAddRunning.value = status.running
+      
+      // 如果状态从停止变为运行，启动自动刷新并停止状态检查
+      if (!wasRunning && status.running) {
+        console.log('[状态检查] 检测到自动添加已启动，立即开始自动刷新并停止状态检查')
+        // 停止状态检查定时器（自动刷新定时器会接管状态检查）
+        if (statusCheckTimer) {
+          clearInterval(statusCheckTimer)
+          statusCheckTimer = null
+        }
+        startAutoRefresh() // startAutoRefresh 内部会立即执行一次刷新
+      }
+    } catch (error) {
+      console.error('[状态检查] 检查状态失败:', error)
+      // 忽略错误，不影响主流程
+    }
+  }, 500) // 每0.5秒检查一次状态（只在未运行时），缩短检测延迟
+}
+
+const stopStatusCheck = () => {
+  if (statusCheckTimer) {
+    clearInterval(statusCheckTimer)
+    statusCheckTimer = null
+    console.log('[状态检查] 已停止状态检查定时器')
+  }
+}
+
 // 初始化
 onMounted(async () => {
   try {
@@ -1371,6 +1905,10 @@ onMounted(async () => {
     await loadData()
     // 初始化表格宽度
     initTableWidth()
+    // 检查自动添加状态
+    await checkAutoAddStatus()
+    // 启动定期状态检查
+    startStatusCheck()
   } catch (error) {
     // 即使列配置加载失败，也尝试加载数据（使用默认配置）
     if (columnConfig.value.length === 0) {
@@ -1381,6 +1919,24 @@ onMounted(async () => {
     await loadData()
     // 初始化表格宽度
     initTableWidth()
+    // 检查自动添加状态（内部会根据状态决定是否启动状态检查）
+    await checkAutoAddStatus()
+    // 只在未运行时启动状态检查（checkAutoAddStatus 内部已处理）
+    if (!autoAddRunning.value) {
+      startStatusCheck()
+    }
+  }
+})
+
+// 组件卸载时清理定时器
+onUnmounted(() => {
+  if (autoRefreshTimer) {
+    clearInterval(autoRefreshTimer)
+    autoRefreshTimer = null
+  }
+  if (statusCheckTimer) {
+    clearInterval(statusCheckTimer)
+    statusCheckTimer = null
   }
 })
 </script>
@@ -1411,6 +1967,7 @@ onMounted(async () => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  position: relative; /* 用于进度条定位 */
 }
 
 /* 列头样式 */
@@ -1776,6 +2333,72 @@ onMounted(async () => {
   display: inline-block;
   cursor: help;
 }
+
+/* 添加数据对话框样式 */
+.add-data-content {
+  max-height: 500px;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.add-data-content .el-form-item {
+  margin-bottom: 16px;
+}
+
+/* 静默加载进度条 */
+.silent-loading-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #409eff 0%, #66b1ff 50%, #409eff 100%);
+  background-size: 200% 100%;
+  animation: loading-bar 1.5s ease-in-out infinite;
+  z-index: 2000;
+  pointer-events: none;
+}
+
+@keyframes loading-bar {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* 表格过渡动画 */
+.table-with-transition {
+  transition: opacity 0.2s ease-in-out;
+}
+
+.table-with-transition :deep(.el-table__body-wrapper) {
+  transition: opacity 0.2s ease-in-out;
+}
+
+/* 优化加载遮罩样式，减少白屏感 */
+:deep(.el-loading-mask) {
+  background-color: rgba(255, 255, 255, 0.7) !important;
+  backdrop-filter: blur(2px);
+}
+
+/* 表格行淡入动画 */
+:deep(.el-table__row) {
+  animation: fadeInRow 0.3s ease-in;
+}
+
+@keyframes fadeInRow {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 </style>
 
 

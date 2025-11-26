@@ -31,7 +31,7 @@ except ImportError:
     from backend.api import app, set_data_table, set_data_initialized, is_data_initialized
 
 # 数据生成配置
-TOTAL_RECORDS = 100000
+TOTAL_RECORDS = 1
 
 
 def init_data() -> pd.DataFrame:

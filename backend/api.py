@@ -3,12 +3,14 @@
 包含FastAPI应用实例、数据模型和所有API路由端点。
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 from typing import Optional, List, Union, Dict, Any
+from datetime import datetime
 import asyncio
 import logging
+import json
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -24,6 +26,9 @@ except ImportError:
 data_table: Optional[DataTable] = None
 # 数据初始化状态标志
 _data_initialized = False
+# 自动添加数据任务
+_auto_add_task: Optional[asyncio.Task] = None
+_auto_add_running = False
 
 
 # FastAPI应用实例
@@ -292,12 +297,241 @@ async def get_columns_config():
 
 @app.get("/api/data/filters")
 async def get_filters():
-    """获取筛选选项"""
+    """获取筛选选项（从当前数据中动态提取）"""
+    try:
+        if data_table is None or not _data_initialized:
+            raise HTTPException(status_code=503, detail="数据未初始化")
+        
+        # 从列配置中提取筛选选项
+        filter_options = {}
+        for col_config in data_table.columns_config:
+            if col_config.filterType in ['multi-select', 'select'] and col_config.options:
+                filter_options[col_config.prop] = col_config.options
+        
+        return {
+            "success": True,
+            "data": filter_options
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取筛选选项失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/data/add")
+async def add_data(request: dict):
+    """动态添加新数据到表格
+    
+    请求参数:
+        data: 新数据，可以是单个字典或字典列表
+    """
+    try:
+        # 如果数据未初始化，等待一小段时间后重试
+        if data_table is None or not _data_initialized:
+            max_wait = 60
+            for i in range(max_wait):
+                await asyncio.sleep(0.5)
+                if data_table is not None and _data_initialized:
+                    break
+            if data_table is None or not _data_initialized:
+                raise HTTPException(status_code=503, detail="数据正在初始化中，请稍后重试")
+        
+        # 获取新数据
+        new_data = request.get('data')
+        if not new_data:
+            raise HTTPException(status_code=400, detail="缺少data参数")
+        
+        # 调用DataTable的add_data方法
+        result = data_table.add_data(new_data)
+        
+        return {
+            "success": True,
+            "data": result
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"添加数据失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def generate_single_record(start_id: int = None) -> dict:
+    """生成单条随机数据记录
+    
+    Args:
+        start_id: 起始ID（用于生成唯一ID），如果为None则使用当前时间戳
+    
+    Returns:
+        单条数据记录的字典
+    """
+    import random
+    from datetime import datetime, timedelta
+    import numpy as np
+    
+    # 字段定义
+    order_statuses = ['待付款', '已付款', '已发货', '已完成', '已取消', '退款中']
+    payment_methods = ['支付宝', '微信支付', '银行卡', '现金', 'PayPal']
+    cities = ['北京', '上海', '广州', '深圳', '杭州', '成都', '武汉', '西安', '南京', '重庆']
+    merchants = ['商家A', '商家B', '商家C', '商家D', '商家E', '商家F', '商家G']
+    
+    # 生成唯一ID（如果没有提供，使用时间戳）
+    if start_id is None:
+        record_id = int(datetime.now().timestamp() * 1000000) % 1000000000
+    else:
+        record_id = start_id
+    
+    # 生成订单号
+    order_number = f"ORD{str(record_id).zfill(10)}"
+    
+    # 生成随机数据
+    order_status = random.choice(order_statuses)
+    payment_method = random.choice(payment_methods)
+    order_amount = round(random.uniform(10, 10000), 2)
+    item_count = random.randint(1, 100)
+    shipping_cost = round(random.uniform(0, 50), 1)
+    city = random.choice(cities)
+    merchant = random.choice(merchants)
+    user_id = random.randint(1000, 99999)
+    discount = round(random.uniform(0, 0.5), 2)
+    
+    # 生成日期（过去2年内）
+    day_offset = random.randint(0, 730)
+    order_date = (datetime.now() - timedelta(days=day_offset)).strftime('%Y-%m-%d')
+    
+    # 生成时间戳（过去2年内，包含微秒精度）
+    base_timestamp = datetime.now().timestamp()
+    seconds_offset = random.uniform(0, 2 * 365 * 24 * 3600)
+    ts = base_timestamp - seconds_offset
+    
+    # 生成payload字段（bytes类型）
+    payload_byte_count = 16
+    payload_bytes = bytes([random.randint(0, 255) for _ in range(payload_byte_count)])
+    
+    return {
+        'order_number': order_number,
+        'order_status': order_status,
+        'payment_method': payment_method,
+        'order_amount': order_amount,
+        'item_count': item_count,
+        'shipping_cost': shipping_cost,
+        'city': city,
+        'merchant': merchant,
+        'user_id': user_id,
+        'discount': discount,
+        'order_date': order_date,
+        'payload': payload_bytes,
+        'ts': ts
+    }
+
+
+async def auto_add_data_task(batch_size: int = 1, interval: float = 0.5):
+    """自动添加数据的后台任务
+    
+    Args:
+        batch_size: 每批添加的数据条数
+        interval: 添加间隔（秒）
+    """
+    global _auto_add_running, data_table
+    current_id = int(datetime.now().timestamp() * 1000000) % 1000000000
+    
+    while _auto_add_running:
+        try:
+            if data_table is None or not _data_initialized:
+                await asyncio.sleep(interval)
+                continue
+            
+            # 生成一批数据
+            batch_data = []
+            for i in range(batch_size):
+                record = generate_single_record(current_id + i)
+                batch_data.append(record)
+            current_id += batch_size
+            
+            # 添加到表格
+            result = data_table.add_data(batch_data)
+            logger.info(f"自动添加数据: {result['added_count']} 条")
+            
+            await asyncio.sleep(interval)
+        except Exception as e:
+            logger.error(f"自动添加数据失败: {str(e)}", exc_info=True)
+            await asyncio.sleep(interval)
+
+
+@app.post("/api/data/auto-add/start")
+async def start_auto_add(request: Request):
+    """启动自动添加数据任务
+    
+    请求参数（可选）:
+        batch_size: 每批添加的数据条数（默认1）
+        interval: 添加间隔，单位秒（默认0.5）
+    """
+    global _auto_add_task, _auto_add_running
+    
+    if _auto_add_running:
+        return {
+            "success": False,
+            "message": "自动添加任务已在运行中"
+        }
+    
+    batch_size = 1
+    interval = 0.5
+    
+    # 从请求体中获取参数
+    try:
+        body = await request.json()
+        if body:
+            batch_size = body.get('batch_size', 1)
+            interval = body.get('interval', 0.5)
+    except:
+        # 如果解析失败，使用默认值
+        pass
+    
+    _auto_add_running = True
+    _auto_add_task = asyncio.create_task(auto_add_data_task(batch_size, interval))
+    
+    logger.info(f"启动自动添加数据任务: batch_size={batch_size}, interval={interval}秒")
+    
+    return {
+        "success": True,
+        "message": f"自动添加任务已启动（每{interval}秒添加{batch_size}条数据）"
+    }
+
+
+@app.post("/api/data/auto-add/stop")
+async def stop_auto_add():
+    """停止自动添加数据任务"""
+    global _auto_add_task, _auto_add_running
+    
+    if not _auto_add_running:
+        return {
+            "success": False,
+            "message": "自动添加任务未在运行"
+        }
+    
+    _auto_add_running = False
+    if _auto_add_task:
+        _auto_add_task.cancel()
+        try:
+            await _auto_add_task
+        except asyncio.CancelledError:
+            pass
+        _auto_add_task = None
+    
+    logger.info("停止自动添加数据任务")
+    
+    return {
+        "success": True,
+        "message": "自动添加任务已停止"
+    }
+
+
+@app.get("/api/data/auto-add/status")
+async def get_auto_add_status():
+    """获取自动添加数据任务状态"""
     return {
         "success": True,
         "data": {
-            "departments": ['技术部', '销售部', '市场部', '人事部', '财务部'],
-            "statuses": ['在职', '离职', '试用期']
+            "running": _auto_add_running
         }
     }
-
