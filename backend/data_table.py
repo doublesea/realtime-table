@@ -48,6 +48,9 @@ class DataTable:
             dataframe: pandas DataFrame格式的数据（可以为空，但必须有正确的列结构）
             columns_config: 列配置列表，定义每列的属性（字段名、类型、筛选方式等）
         """
+        import threading
+        self._lock = threading.RLock()
+        
         if dataframe is None:
             raise ValueError("DataFrame不能为None")
         if not columns_config:
@@ -106,7 +109,7 @@ class DataTable:
                     return None
         return None
     
-    def _build_pandas_filter(self, filters: Optional['FilterParams'] = None) -> pd.Series:
+    def _build_pandas_filter(self, filters: Optional['FilterParams'] = None, df: Optional[pd.DataFrame] = None) -> pd.Series:
         """将筛选条件转换为pandas布尔索引（动态处理任意字段）"""
         # 延迟导入避免循环依赖
         try:
@@ -114,16 +117,19 @@ class DataTable:
         except ImportError:
             from backend.api import FilterParams, FilterGroup, NumberFilter  # type: ignore
         
+        # 使用传入的df或self.dataframe
+        target_df = df if df is not None else self.dataframe
+        
         # 如果 DataFrame 为空，返回空掩码
-        if self.dataframe.empty:
+        if target_df.empty:
             return pd.Series([], dtype=bool)
         
         if not filters:
             # 使用 index 创建掩码，确保索引一致
-            return pd.Series([True] * len(self.dataframe), index=self.dataframe.index)
+            return pd.Series([True] * len(target_df), index=target_df.index)
         
         # 初始化筛选掩码，使用 DataFrame 的索引
-        mask = pd.Series([True] * len(self.dataframe), index=self.dataframe.index)
+        mask = pd.Series([True] * len(target_df), index=target_df.index)
         
         # 获取筛选参数字典
         filter_dict = filters.model_dump(exclude_none=True) if hasattr(filters, 'model_dump') else filters.dict(exclude_none=True) if hasattr(filters, 'dict') else {}
@@ -132,7 +138,7 @@ class DataTable:
         for field_name, filter_value in filter_dict.items():
             
             # 检查字段是否存在于DataFrame中
-            if field_name not in self.dataframe.columns:
+            if field_name not in target_df.columns:
                 continue
             
             # 查找对应的列配置
@@ -153,15 +159,15 @@ class DataTable:
                             if val is None:
                                 continue
                             if op == '=':
-                                filters_mask.append(self.dataframe[field_name] == val)
+                                filters_mask.append(target_df[field_name] == val)
                             elif op == '>':
-                                filters_mask.append(self.dataframe[field_name] > val)
+                                filters_mask.append(target_df[field_name] > val)
                             elif op == '<':
-                                filters_mask.append(self.dataframe[field_name] < val)
+                                filters_mask.append(target_df[field_name] < val)
                             elif op == '>=':
-                                filters_mask.append(self.dataframe[field_name] >= val)
+                                filters_mask.append(target_df[field_name] >= val)
                             elif op == '<=':
-                                filters_mask.append(self.dataframe[field_name] <= val)
+                                filters_mask.append(target_df[field_name] <= val)
                     
                     if filters_mask:
                         logic = filter_value.logic or 'AND'
@@ -180,15 +186,15 @@ class DataTable:
                         val = self._parse_number_value(filter_value.value)
                         if val is not None:
                             if op == '=':
-                                mask &= (self.dataframe[field_name] == val)
+                                mask &= (target_df[field_name] == val)
                             elif op == '>':
-                                mask &= (self.dataframe[field_name] > val)
+                                mask &= (target_df[field_name] > val)
                             elif op == '<':
-                                mask &= (self.dataframe[field_name] < val)
+                                mask &= (target_df[field_name] < val)
                             elif op == '>=':
-                                mask &= (self.dataframe[field_name] >= val)
+                                mask &= (target_df[field_name] >= val)
                             elif op == '<=':
-                                mask &= (self.dataframe[field_name] <= val)
+                                mask &= (target_df[field_name] <= val)
                 # 处理字典格式（从 JSON 解析来的）
                 elif isinstance(filter_value, dict):
                     if 'filters' in filter_value:
@@ -202,15 +208,15 @@ class DataTable:
                                 if val is None:
                                     continue
                                 if op == '=':
-                                    filters_mask.append(self.dataframe[field_name] == val)
+                                    filters_mask.append(target_df[field_name] == val)
                                 elif op == '>':
-                                    filters_mask.append(self.dataframe[field_name] > val)
+                                    filters_mask.append(target_df[field_name] > val)
                                 elif op == '<':
-                                    filters_mask.append(self.dataframe[field_name] < val)
+                                    filters_mask.append(target_df[field_name] < val)
                                 elif op == '>=':
-                                    filters_mask.append(self.dataframe[field_name] >= val)
+                                    filters_mask.append(target_df[field_name] >= val)
                                 elif op == '<=':
-                                    filters_mask.append(self.dataframe[field_name] <= val)
+                                    filters_mask.append(target_df[field_name] <= val)
                         
                         if filters_mask:
                             logic = filter_group.logic or 'AND'
@@ -231,15 +237,15 @@ class DataTable:
                             val = self._parse_number_value(num_filter.value)
                             if val is not None:
                                 if op == '=':
-                                    mask &= (self.dataframe[field_name] == val)
+                                    mask &= (target_df[field_name] == val)
                                 elif op == '>':
-                                    mask &= (self.dataframe[field_name] > val)
+                                    mask &= (target_df[field_name] > val)
                                 elif op == '<':
-                                    mask &= (self.dataframe[field_name] < val)
+                                    mask &= (target_df[field_name] < val)
                                 elif op == '>=':
-                                    mask &= (self.dataframe[field_name] >= val)
+                                    mask &= (target_df[field_name] >= val)
                                 elif op == '<=':
-                                    mask &= (self.dataframe[field_name] <= val)
+                                    mask &= (target_df[field_name] <= val)
             
             elif col_config.filterType == 'text':
                 # 文本筛选
@@ -249,29 +255,29 @@ class DataTable:
                         # 优化：使用向量化操作而不是apply（性能提升）
                         try:
                             # 尝试直接使用字符串操作（如果已经是字符串类型）
-                            if self.dataframe[field_name].dtype == 'object':
+                            if target_df[field_name].dtype == 'object':
                                 # 检查第一个非空值是否为bytes
-                                sample = self.dataframe[field_name].dropna()
+                                sample = target_df[field_name].dropna()
                                 if len(sample) > 0 and isinstance(sample.iloc[0], bytes):
                                     # 使用向量化操作：批量转换bytes为hex字符串
                                     # 注意：pandas的apply在大量数据时很慢，但bytes转换无法完全向量化
                                     # 我们使用更高效的方式：只对非空值进行转换
-                                    hex_series = self.dataframe[field_name].apply(
+                                    hex_series = target_df[field_name].apply(
                                         lambda val: ' '.join([f'{b:02X}' for b in val]) if isinstance(val, bytes) else str(val)
                                     )
                                     mask &= hex_series.str.contains(filter_value, case=False, na=False)
                                 else:
                                     # 已经是字符串，直接筛选
-                                    mask &= self.dataframe[field_name].astype(str).str.contains(filter_value, case=False, na=False)
+                                    mask &= target_df[field_name].astype(str).str.contains(filter_value, case=False, na=False)
                             else:
                                 # 直接转换为字符串筛选
-                                mask &= self.dataframe[field_name].astype(str).str.contains(filter_value, case=False, na=False)
+                                mask &= target_df[field_name].astype(str).str.contains(filter_value, case=False, na=False)
                         except Exception:
                             # 如果转换失败，回退到原始方法
-                            mask &= self.dataframe[field_name].astype(str).str.contains(filter_value, case=False, na=False)
+                            mask &= target_df[field_name].astype(str).str.contains(filter_value, case=False, na=False)
                     else:
                         # 普通文本字段：直接使用字符串操作（已优化）
-                        mask &= self.dataframe[field_name].astype(str).str.contains(filter_value, case=False, na=False)
+                        mask &= target_df[field_name].astype(str).str.contains(filter_value, case=False, na=False)
             
             elif col_config.filterType == 'date':
                 # 日期筛选
@@ -293,14 +299,14 @@ class DataTable:
                             
                             # 将ts列转换为字符串进行文本匹配（支持部分匹配）
                             # 注意：对于大量数据，这仍然可能较慢，但提供了灵活性
-                            ts_str_series = self.dataframe[field_name].apply(timestamp_to_str)
+                            ts_str_series = target_df[field_name].apply(timestamp_to_str)
                             mask &= ts_str_series.str.contains(filter_value, case=False, na=False)
                         except Exception:
                             # 如果转换失败，尝试直接字符串匹配
-                            mask &= self.dataframe[field_name].astype(str).str.contains(filter_value, case=False, na=False)
+                            mask &= target_df[field_name].astype(str).str.contains(filter_value, case=False, na=False)
                     else:
                         # 普通日期字段，直接字符串匹配
-                        mask &= (self.dataframe[field_name].astype(str) == filter_value)
+                        mask &= (target_df[field_name].astype(str) == filter_value)
             
             elif col_config.filterType in ['multi-select', 'select']:
                 # 多选或单选筛选
@@ -315,11 +321,11 @@ class DataTable:
                 if len(filter_list) > 0:
                     # 确保 DataFrame 列的数据类型匹配
                     try:
-                        mask &= self.dataframe[field_name].isin(filter_list)
+                        mask &= target_df[field_name].isin(filter_list)
                     except Exception as e:
                         # 尝试转换为字符串后再筛选
                         try:
-                            mask &= self.dataframe[field_name].astype(str).isin([str(v) for v in filter_list])
+                            mask &= target_df[field_name].astype(str).isin([str(v) for v in filter_list])
                         except Exception as e2:
                             pass
         
@@ -343,23 +349,25 @@ class DataTable:
         Returns:
             包含list、total、page、pageSize的字典
         """
-        # 直接使用 self.dataframe，避免不必要的 copy（大数据量时 copy 很慢）
-        # 注意：这里假设在 get_list 执行期间，self.dataframe 不会被修改
-        # 如果确实需要并发安全，可以考虑使用锁机制
+        # 使用锁保护读取，并创建dataframe快照以确保操作的一致性
+        with self._lock:
+            current_df = self.dataframe
+            # 如果 dataframe 是 None (虽然初始化检查过，但为了安全)
+            if current_df is None:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error("DataFrame 未初始化 or None")
+                return {
+                    "list": [],
+                    "total": 0,
+                    "page": page,
+                    "pageSize": page_size
+                }
         
-        # 先检查 dataframe 是否为空或无效
-        if not hasattr(self, 'dataframe') or self.dataframe is None:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error("DataFrame 未初始化或为 None")
-            return {
-                "list": [],
-                "total": 0,
-                "page": page,
-                "pageSize": page_size
-            }
+        # 以下操作使用 current_df 快照，无需持有锁（除非涉及到其他共享状态）
+        # 注意：current_df 是一个引用，如果 add_data 替换了 self.dataframe，current_df 指向旧对象，这是安全的。
         
-        if self.dataframe.empty:
+        if current_df.empty:
             return {
                 "list": [],
                 "total": 0,
@@ -368,9 +376,9 @@ class DataTable:
             }
         
         # 验证 DataFrame 的完整性（防止数据被意外清空）
-        dataframe_length = len(self.dataframe)
+        dataframe_length = len(current_df)
         
-        # 记录当前长度（用于下次验证）
+        # 记录当前长度（用于下次验证）- 注意：写入 _last_known_length 也应该是线程安全的，但这里只是用于日志，暂不加锁
         if not hasattr(self, '_last_known_length'):
             self._last_known_length = dataframe_length
         
@@ -399,34 +407,34 @@ class DataTable:
             import time as time_module
             start_time = time_module.time()
             
-            # 构建筛选条件
-            mask = self._build_pandas_filter(filters)
+            # 构建筛选条件 - 传入 current_df
+            mask = self._build_pandas_filter(filters, df=current_df)
             
             # 检查 mask 是否有效
-            if len(mask) != len(self.dataframe):
+            if len(mask) != len(current_df):
                 import logging
                 logger = logging.getLogger(__name__)
                 logger.warning(
-                    f"筛选掩码长度不匹配: mask={len(mask)}, dataframe={len(self.dataframe)}. "
-                    f"DataFrame索引: {self.dataframe.index.tolist()[:10] if len(self.dataframe) > 0 else 'empty'}, "
+                    f"筛选掩码长度不匹配: mask={len(mask)}, dataframe={len(current_df)}. "
+                    f"DataFrame索引: {current_df.index.tolist()[:10] if len(current_df) > 0 else 'empty'}, "
                     f"Mask索引: {mask.index.tolist()[:10] if len(mask) > 0 else 'empty'}"
                 )
                 # 重新创建正确的掩码，使用 DataFrame 的索引
-                mask = pd.Series([True] * len(self.dataframe), index=self.dataframe.index)
+                mask = pd.Series([True] * len(current_df), index=current_df.index)
             
             # 确保 mask 的索引与 dataframe 的索引匹配
-            if not mask.index.equals(self.dataframe.index):
+            if not mask.index.equals(current_df.index):
                 import logging
                 logger = logging.getLogger(__name__)
                 logger.warning(
                     f"筛选掩码索引不匹配: 重新对齐索引. "
-                    f"DataFrame索引范围: {self.dataframe.index.min() if len(self.dataframe) > 0 else 'N/A'} - "
-                    f"{self.dataframe.index.max() if len(self.dataframe) > 0 else 'N/A'}, "
+                    f"DataFrame索引范围: {current_df.index.min() if len(current_df) > 0 else 'N/A'} - "
+                    f"{current_df.index.max() if len(current_df) > 0 else 'N/A'}, "
                     f"Mask索引范围: {mask.index.min() if len(mask) > 0 else 'N/A'} - "
                     f"{mask.index.max() if len(mask) > 0 else 'N/A'}"
                 )
                 # 重新创建掩码，确保索引匹配
-                mask = pd.Series([True] * len(self.dataframe), index=self.dataframe.index)
+                mask = pd.Series([True] * len(current_df), index=current_df.index)
             
             # 检查筛选后的数据量（用于调试）
             filtered_count = int(mask.sum()) if hasattr(mask, 'sum') else len(mask[mask])
@@ -441,19 +449,17 @@ class DataTable:
                 except:
                     filter_info = str(filters)
             
-            logger.info(
-                f"get_list: 原始数据量={len(self.dataframe)}, 筛选后={filtered_count}, "
-                f"筛选条件={filter_info}, page={page}, page_size={page_size}"
-            )
+            # 减少日志频率，仅在调试或异常时记录
+            # logger.info(...)
             
-            if filtered_count == 0 and len(self.dataframe) > 0:
+            if filtered_count == 0 and len(current_df) > 0:
                 logger.warning(
-                    f"⚠️ 筛选后数据为空！原始数据量: {len(self.dataframe)}, "
+                    f"⚠️ 筛选后数据为空！原始数据量: {len(current_df)}, "
                     f"筛选条件: {filter_info}. 这可能导致表格显示为空！"
                 )
             
             # 使用视图而不是copy，提高性能（在筛选时）
-            filtered_df = self.dataframe[mask]
+            filtered_df = current_df[mask]
             
             # 检查是否需要排序
             needs_sort = sort_by and sort_by in filtered_df.columns
@@ -474,7 +480,7 @@ class DataTable:
             # 确保索引范围有效
             if start_index >= total_count:
                 # 请求的页面超出范围，返回空 DataFrame
-                paginated_df = pd.DataFrame(columns=self.dataframe.columns)
+                paginated_df = pd.DataFrame(columns=current_df.columns)
             else:
                 # 确保 end_index 不超过总数
                 end_index = min(end_index, total_count)
@@ -486,24 +492,24 @@ class DataTable:
             
             # 记录性能信息（仅在大数据量时）
             elapsed_time = time_module.time() - start_time
-            if elapsed_time > 0.5 or len(self.dataframe) > 5000:
+            if elapsed_time > 0.5 or len(current_df) > 5000:
                 logger.debug(
-                    f"get_list 性能: 数据量={len(self.dataframe)}, 筛选后={total_count}, "
+                    f"get_list 性能: 数据量={len(current_df)}, 筛选后={total_count}, "
                     f"分页={page}/{page_size}, 耗时={elapsed_time:.3f}秒"
                 )
         except Exception as e:
             # 如果处理失败，记录错误并返回空结果
             import logging
             logger = logging.getLogger(__name__)
-            dataframe_length = len(self.dataframe) if hasattr(self, 'dataframe') and self.dataframe is not None else 'N/A'
+            dataframe_length = len(current_df) if current_df is not None else 'N/A'
             logger.error(
                 f"get_list 处理失败: {str(e)}, dataframe长度={dataframe_length}, "
-                f"dataframe是否为空={self.dataframe.empty if hasattr(self, 'dataframe') and self.dataframe is not None else 'N/A'}, "
+                f"dataframe是否为空={current_df.empty if current_df is not None else 'N/A'}, "
                 f"筛选条件={filters.model_dump(exclude_none=True) if filters and hasattr(filters, 'model_dump') else (filters.dict(exclude_none=True) if filters and hasattr(filters, 'dict') else {})}",
                 exc_info=True
             )
             # 如果 DataFrame 为空或不存在，返回空结果
-            if not hasattr(self, 'dataframe') or self.dataframe is None or self.dataframe.empty:
+            if current_df is None or current_df.empty:
                 return {
                     "list": [],
                     "total": 0,
@@ -511,10 +517,10 @@ class DataTable:
                     "pageSize": page_size
                 }
             # 返回空 DataFrame，但保持正确的总数（用于分页显示）
-            paginated_df = pd.DataFrame(columns=self.dataframe.columns)
+            paginated_df = pd.DataFrame(columns=current_df.columns)
             # 尝试获取实际总数，如果失败则使用0
             try:
-                total_count = len(self.dataframe)
+                total_count = len(current_df)
             except:
                 total_count = 0
         
@@ -585,8 +591,14 @@ class DataTable:
         Returns:
             包含found和position的字典
         """
-        mask = self._build_pandas_filter(filters)
-        filtered_df = self.dataframe[mask].copy()
+        # 使用锁保护读取
+        with self._lock:
+            current_df = self.dataframe
+            if current_df is None:
+                return {"found": False, "position": -1}
+        
+        mask = self._build_pandas_filter(filters, df=current_df)
+        filtered_df = current_df[mask].copy()
         
         # 查找选中行的位置
         matching_rows = filtered_df[filtered_df['id'] == row_id]
@@ -614,8 +626,14 @@ class DataTable:
         Returns:
             行详情列表，每个元素包含label、value、detail、type等字段
         """
+        # 使用锁保护读取
+        with self._lock:
+            current_df = self.dataframe
+            if current_df is None:
+                raise ValueError("DataFrame 未初始化")
+        
         # 在DataFrame中通过ID列查找该行
-        matching_rows = self.dataframe[self.dataframe['id'] == row_id]
+        matching_rows = current_df[current_df['id'] == row_id]
         if len(matching_rows) == 0:
             raise ValueError(f"未找到ID为 {row_id} 的记录")
         
@@ -650,11 +668,78 @@ class DataTable:
                     "type": col_config.type
                 }
                 if col_config.type == 'number':
-                    detail_item['format'] = 'int' if 'int' in str(self.dataframe[prop].dtype) else 'float'
+                    detail_item['format'] = 'int' if 'int' in str(current_df[prop].dtype) else 'float'
                 detail.append(detail_item)
         
         return detail
     
+    def update_dataframe(self, new_dataframe: pd.DataFrame) -> Dict[str, Any]:
+        """直接更新DataFrame (由外部控制数据源时使用)
+        
+        Args:
+            new_dataframe: 新的DataFrame数据
+        
+        Returns:
+            包含更新结果的字典
+        """
+        # 使用锁保护写入
+        with self._lock:
+            if new_dataframe is None:
+                raise ValueError("DataFrame不能为None")
+            
+            # 检查是否有新字段
+            # 注意：这里假设 columns_config 已经包含了之前的所有字段
+            existing_columns = set(c.prop for c in self.columns_config)
+            new_columns = set(new_dataframe.columns)
+            added_columns = new_columns - existing_columns
+            
+            columns_updated = False
+            if added_columns:
+                # 为新字段生成列配置
+                temp_df = new_dataframe[list(added_columns)]
+                new_columns_config = generate_columns_config_from_dataframe(temp_df)
+                self.columns_config.extend(new_columns_config)
+                columns_updated = True
+            
+            # 更新 DataFrame 引用
+            self.dataframe = new_dataframe
+            
+            # 更新列配置中的筛选选项（对于 multi-select 和 select 类型）
+            for col_config in self.columns_config:
+                if col_config.filterType in ['multi-select', 'select']:
+                    try:
+                        # 检查该列是否存在于新数据中
+                        if col_config.prop not in self.dataframe.columns:
+                            continue
+                            
+                        # 性能优化：先检查唯一值数量
+                        unique_count = self.dataframe[col_config.prop].nunique()
+                        
+                        if unique_count > 100:
+                            if col_config.filterType != 'text':
+                                col_config.options = None
+                                col_config.filterType = 'text'
+                                columns_updated = True
+                        else:
+                            unique_values = self.dataframe[col_config.prop].dropna().unique().tolist()
+                            options = sorted([str(v) for v in unique_values])
+                            
+                            if col_config.options != options:
+                                col_config.options = options
+                                # 仅 options 变化通常不需要前端重绘整个列，但为了安全起见，如果这里检测到变化，
+                                # 在首次加载或 filterType 变化时是有用的
+                    except Exception:
+                        pass
+            
+            # 验证列配置
+            self._validate_columns()
+            
+            return {
+                "success": True,
+                "columns_updated": columns_updated,
+                "total_count": len(self.dataframe)
+            }
+
     def add_data(self, new_data: Union[Dict[str, Any], List[Dict[str, Any]]]) -> Dict[str, Any]:
         """动态添加新数据到DataFrame
         
@@ -664,210 +749,212 @@ class DataTable:
         Returns:
             包含添加结果和更新后的列配置的字典
         """
-        # 检查 dataframe 是否有效
-        if not hasattr(self, 'dataframe') or self.dataframe is None:
-            raise ValueError("DataFrame 未初始化，无法添加数据")
-        
-        # 确保new_data是列表格式
-        if isinstance(new_data, dict):
-            new_data = [new_data]
-        
-        if not new_data:
-            raise ValueError("新数据不能为空")
-        
-        # 保存原始数据量，用于验证
-        original_length = len(self.dataframe)
-        original_columns = set(self.dataframe.columns)
-        
-        # 转换为DataFrame
-        new_df = pd.DataFrame(new_data)
-        
-        # 检查是否有新字段（不在现有DataFrame中的字段）
-        existing_columns = set(self.dataframe.columns)
-        new_columns = set(new_df.columns)
-        added_columns = new_columns - existing_columns
-        
-        # 如果新数据中有新字段，需要更新列配置
-        columns_updated = False
-        if added_columns:
-            # 为新字段生成列配置（generate_columns_config_from_dataframe 定义在本文件末尾）
-            # 直接调用，无需导入
+        # 使用锁保护写入
+        with self._lock:
+            # 检查 dataframe 是否有效
+            if not hasattr(self, 'dataframe') or self.dataframe is None:
+                raise ValueError("DataFrame 未初始化，无法添加数据")
             
-            # 创建一个临时DataFrame，只包含新字段，用于生成列配置
-            temp_df = new_df[list(added_columns)]
-            new_columns_config = generate_columns_config_from_dataframe(temp_df)
+            # 确保new_data是列表格式
+            if isinstance(new_data, dict):
+                new_data = [new_data]
             
-            # 将新列配置添加到现有配置中
-            self.columns_config.extend(new_columns_config)
-            columns_updated = True
-        
-        # 确保新数据的列与现有DataFrame的列对齐
-        # 对于新数据中不存在的列，填充None
-        for col in existing_columns:
-            if col not in new_df.columns:
-                new_df[col] = None
-        
-        # 对于现有DataFrame中不存在的列（新字段），在现有DataFrame中填充None
-        for col in added_columns:
-            if col not in self.dataframe.columns:
-                self.dataframe[col] = None
-        
-        # 确保列顺序一致
-        new_df = new_df[self.dataframe.columns]
-        
-        # 处理ID字段：如果新数据没有ID或ID为None，自动生成
-        if 'id' in self.dataframe.columns:
-            max_id = self.dataframe['id'].max() if len(self.dataframe) > 0 else 0
-            for idx, row in new_df.iterrows():
-                if pd.isna(row.get('id')) or row.get('id') is None:
-                    max_id += 1
-                    new_df.at[idx, 'id'] = max_id
-        
-        # 处理特殊类型字段
-        for col in new_df.columns:
-            col_config = next((c for c in self.columns_config if c.prop == col), None)
-            if col_config:
-                if col_config.type == 'bytes':
-                    # 如果字段类型是bytes，但新数据是字符串，尝试转换
-                    for idx, val in new_df[col].items():
-                        if isinstance(val, str):
-                            # 尝试将16进制字符串转换为bytes
-                            try:
-                                # 移除空格并转换为bytes
-                                hex_str = val.replace(' ', '').replace('-', '')
-                                new_df.at[idx, col] = bytes.fromhex(hex_str)
-                            except ValueError:
-                                # 如果转换失败，保持原值
-                                pass
-                elif col == 'ts' and col_config.type == 'date':
-                    # 如果ts字段是字符串，尝试转换为时间戳
-                    from datetime import datetime
-                    for idx, val in new_df[col].items():
-                        if pd.isna(val) or val is None:
-                            continue
-                        if isinstance(val, str) and val.strip():
-                            try:
-                                # 尝试解析日期时间字符串（支持多种格式）
-                                val_stripped = val.strip()
-                                # 尝试完整格式：YYYY-MM-DD HH:MM:SS.ffffff
+            if not new_data:
+                raise ValueError("新数据不能为空")
+            
+            # 保存原始数据量，用于验证
+            original_length = len(self.dataframe)
+            original_columns = set(self.dataframe.columns)
+            
+            # 转换为DataFrame
+            new_df = pd.DataFrame(new_data)
+            
+            # 检查是否有新字段（不在现有DataFrame中的字段）
+            existing_columns = set(self.dataframe.columns)
+            new_columns = set(new_df.columns)
+            added_columns = new_columns - existing_columns
+            
+            # 如果新数据中有新字段，需要更新列配置
+            columns_updated = False
+            if added_columns:
+                # 为新字段生成列配置（generate_columns_config_from_dataframe 定义在本文件末尾）
+                # 直接调用，无需导入
+                
+                # 创建一个临时DataFrame，只包含新字段，用于生成列配置
+                temp_df = new_df[list(added_columns)]
+                new_columns_config = generate_columns_config_from_dataframe(temp_df)
+                
+                # 将新列配置添加到现有配置中
+                self.columns_config.extend(new_columns_config)
+                columns_updated = True
+            
+            # 确保新数据的列与现有DataFrame的列对齐
+            # 对于新数据中不存在的列，填充None
+            for col in existing_columns:
+                if col not in new_df.columns:
+                    new_df[col] = None
+            
+            # 对于现有DataFrame中不存在的列（新字段），在现有DataFrame中填充None
+            for col in added_columns:
+                if col not in self.dataframe.columns:
+                    self.dataframe[col] = None
+            
+            # 确保列顺序一致
+            new_df = new_df[self.dataframe.columns]
+            
+            # 处理ID字段：如果新数据没有ID或ID为None，自动生成
+            if 'id' in self.dataframe.columns:
+                max_id = self.dataframe['id'].max() if len(self.dataframe) > 0 else 0
+                for idx, row in new_df.iterrows():
+                    if pd.isna(row.get('id')) or row.get('id') is None:
+                        max_id += 1
+                        new_df.at[idx, 'id'] = max_id
+            
+            # 处理特殊类型字段
+            for col in new_df.columns:
+                col_config = next((c for c in self.columns_config if c.prop == col), None)
+                if col_config:
+                    if col_config.type == 'bytes':
+                        # 如果字段类型是bytes，但新数据是字符串，尝试转换
+                        for idx, val in new_df[col].items():
+                            if isinstance(val, str):
+                                # 尝试将16进制字符串转换为bytes
                                 try:
-                                    dt = datetime.strptime(val_stripped, '%Y-%m-%d %H:%M:%S.%f')
-                                    new_df.at[idx, col] = dt.timestamp()
+                                    # 移除空格并转换为bytes
+                                    hex_str = val.replace(' ', '').replace('-', '')
+                                    new_df.at[idx, col] = bytes.fromhex(hex_str)
                                 except ValueError:
-                                    # 尝试格式：YYYY-MM-DD HH:MM:SS
+                                    # 如果转换失败，保持原值
+                                    pass
+                    elif col == 'ts' and col_config.type == 'date':
+                        # 如果ts字段是字符串，尝试转换为时间戳
+                        from datetime import datetime
+                        for idx, val in new_df[col].items():
+                            if pd.isna(val) or val is None:
+                                continue
+                            if isinstance(val, str) and val.strip():
+                                try:
+                                    # 尝试解析日期时间字符串（支持多种格式）
+                                    val_stripped = val.strip()
+                                    # 尝试完整格式：YYYY-MM-DD HH:MM:SS.ffffff
                                     try:
-                                        dt = datetime.strptime(val_stripped, '%Y-%m-%d %H:%M:%S')
+                                        dt = datetime.strptime(val_stripped, '%Y-%m-%d %H:%M:%S.%f')
                                         new_df.at[idx, col] = dt.timestamp()
                                     except ValueError:
-                                        # 尝试格式：YYYY-MM-DD
+                                        # 尝试格式：YYYY-MM-DD HH:MM:SS
                                         try:
-                                            dt = datetime.strptime(val_stripped, '%Y-%m-%d')
+                                            dt = datetime.strptime(val_stripped, '%Y-%m-%d %H:%M:%S')
                                             new_df.at[idx, col] = dt.timestamp()
                                         except ValueError:
-                                            # 如果都失败，尝试作为数字（可能是时间戳字符串）
+                                            # 尝试格式：YYYY-MM-DD
                                             try:
-                                                new_df.at[idx, col] = float(val_stripped)
+                                                dt = datetime.strptime(val_stripped, '%Y-%m-%d')
+                                                new_df.at[idx, col] = dt.timestamp()
                                             except ValueError:
-                                                pass
-                            except Exception:
-                                pass
-        
-        # 将新数据追加到DataFrame
-        # 使用 ignore_index=True 确保索引连续，避免索引问题
-        # 注意：ignore_index=True 已经会重置索引，不需要再调用 reset_index
-        try:
-            # 执行合并操作
-            combined_df = pd.concat([self.dataframe, new_df], ignore_index=True)
+                                                # 如果都失败，尝试作为数字（可能是时间戳字符串）
+                                                try:
+                                                    new_df.at[idx, col] = float(val_stripped)
+                                                except ValueError:
+                                                    pass
+                                except Exception:
+                                    pass
             
-            # 验证合并后的数据量是否正确
-            expected_length = original_length + len(new_df)
-            if len(combined_df) != expected_length:
-                raise ValueError(
-                    f"数据合并后长度不匹配: 期望 {expected_length}, 实际 {len(combined_df)}. "
-                    f"原始数据量: {original_length}, 新数据量: {len(new_df)}"
+            # 将新数据追加到DataFrame
+            # 使用 ignore_index=True 确保索引连续，避免索引问题
+            # 注意：ignore_index=True 已经会重置索引，不需要再调用 reset_index
+            try:
+                # 执行合并操作
+                combined_df = pd.concat([self.dataframe, new_df], ignore_index=True)
+                
+                # 验证合并后的数据量是否正确
+                expected_length = original_length + len(new_df)
+                if len(combined_df) != expected_length:
+                    raise ValueError(
+                        f"数据合并后长度不匹配: 期望 {expected_length}, 实际 {len(combined_df)}. "
+                        f"原始数据量: {original_length}, 新数据量: {len(new_df)}"
+                    )
+                
+                # 验证列是否一致
+                if set(combined_df.columns) != original_columns:
+                    missing_columns = original_columns - set(combined_df.columns)
+                    if missing_columns:
+                        raise ValueError(f"合并后缺少列: {missing_columns}")
+                
+                # 验证数据没有被清空（合并后的数据量应该大于等于原始数据量）
+                if len(combined_df) < original_length:
+                    raise ValueError(
+                        f"数据合并后数据量减少: 原始 {original_length}, 合并后 {len(combined_df)}. "
+                        f"这不应该发生，可能是数据被意外清空"
+                    )
+                
+                # 所有验证通过后，才更新 self.dataframe
+                self.dataframe = combined_df
+                
+                # 记录添加数据的信息
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(
+                    f"add_data 成功: 添加了 {len(new_df)} 行, "
+                    f"原始数据量={original_length}, 新数据量={len(self.dataframe)}"
                 )
-            
-            # 验证列是否一致
-            if set(combined_df.columns) != original_columns:
-                missing_columns = original_columns - set(combined_df.columns)
-                if missing_columns:
-                    raise ValueError(f"合并后缺少列: {missing_columns}")
-            
-            # 验证数据没有被清空（合并后的数据量应该大于等于原始数据量）
-            if len(combined_df) < original_length:
-                raise ValueError(
-                    f"数据合并后数据量减少: 原始 {original_length}, 合并后 {len(combined_df)}. "
-                    f"这不应该发生，可能是数据被意外清空"
+                
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                current_length = len(self.dataframe) if hasattr(self, 'dataframe') and self.dataframe is not None else 'N/A'
+                logger.error(
+                    f"添加数据失败: {str(e)}, 当前数据量={current_length}, "
+                    f"新数据量={len(new_df)}, 原始数据量={original_length}",
+                    exc_info=True
                 )
+                # 确保在异常情况下，dataframe 没有被破坏
+                if not hasattr(self, 'dataframe') or self.dataframe is None or len(self.dataframe) < original_length:
+                    logger.critical(
+                        f"检测到 DataFrame 可能被破坏！原始数据量: {original_length}, "
+                        f"当前数据量: {current_length}. 这可能导致数据丢失！"
+                    )
+                raise
             
-            # 所有验证通过后，才更新 self.dataframe
-            self.dataframe = combined_df
-            
-            # 记录添加数据的信息
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.info(
-                f"add_data 成功: 添加了 {len(new_df)} 行, "
-                f"原始数据量={original_length}, 新数据量={len(self.dataframe)}"
-            )
-            
-        except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            current_length = len(self.dataframe) if hasattr(self, 'dataframe') and self.dataframe is not None else 'N/A'
-            logger.error(
-                f"添加数据失败: {str(e)}, 当前数据量={current_length}, "
-                f"新数据量={len(new_df)}, 原始数据量={original_length}",
-                exc_info=True
-            )
-            # 确保在异常情况下，dataframe 没有被破坏
-            if not hasattr(self, 'dataframe') or self.dataframe is None or len(self.dataframe) < original_length:
-                logger.critical(
-                    f"检测到 DataFrame 可能被破坏！原始数据量: {original_length}, "
-                    f"当前数据量: {current_length}. 这可能导致数据丢失！"
-                )
-            raise
-        
-        # 更新列配置中的筛选选项（对于 multi-select 和 select 类型）
-        # 重新计算唯一值并更新 options
-        for col_config in self.columns_config:
-            if col_config.filterType in ['multi-select', 'select']:
-                try:
-                    # 性能优化：先检查唯一值数量，如果太多直接切换为文本筛选，避免计算 unique()
-                    # unique() 在数据量大时比较耗时
-                    unique_count = self.dataframe[col_config.prop].nunique()
-                    
-                    if unique_count > 100:
-                        # 如果超过100个，清空 options，使用文本筛选
-                        if col_config.filterType != 'text':
-                            col_config.options = None
-                            col_config.filterType = 'text'
-                            columns_updated = True
-                    else:
-                        # 获取该列的唯一值（数量不多，计算开销可接受）
-                        unique_values = self.dataframe[col_config.prop].dropna().unique().tolist()
-                        # 转换为字符串并排序
-                        options = sorted([str(v) for v in unique_values])
+            # 更新列配置中的筛选选项（对于 multi-select 和 select 类型）
+            # 重新计算唯一值并更新 options
+            for col_config in self.columns_config:
+                if col_config.filterType in ['multi-select', 'select']:
+                    try:
+                        # 性能优化：先检查唯一值数量，如果太多直接切换为文本筛选，避免计算 unique()
+                        # unique() 在数据量大时比较耗时
+                        unique_count = self.dataframe[col_config.prop].nunique()
                         
-                        # 检查 options 是否有变化
-                        if col_config.options != options:
-                            col_config.options = options
-                            # options 变化通常不需要强制刷新整个列配置，因为前端会通过 /filters 接口获取最新选项
-                            # 但如果是第一次生成 options，或者 filterType 发生变化，则需要
+                        if unique_count > 100:
+                            # 如果超过100个，清空 options，使用文本筛选
+                            if col_config.filterType != 'text':
+                                col_config.options = None
+                                col_config.filterType = 'text'
+                                columns_updated = True
+                        else:
+                            # 获取该列的唯一值（数量不多，计算开销可接受）
+                            unique_values = self.dataframe[col_config.prop].dropna().unique().tolist()
+                            # 转换为字符串并排序
+                            options = sorted([str(v) for v in unique_values])
                             
-                except Exception as e:
-                    # 如果更新失败，保持原有配置
-                    pass
-        
-        # 验证列配置
-        self._validate_columns()
-        
-        return {
-            "success": True,
-            "added_count": len(new_df),
-            "columns_updated": columns_updated,
-            "added_columns": list(added_columns) if added_columns else []
-        }
+                            # 检查 options 是否有变化
+                            if col_config.options != options:
+                                col_config.options = options
+                                # options 变化通常不需要强制刷新整个列配置，因为前端会通过 /filters 接口获取最新选项
+                                # 但如果是第一次生成 options，或者 filterType 发生变化，则需要
+                                
+                    except Exception as e:
+                        # 如果更新失败，保持原有配置
+                        pass
+            
+            # 验证列配置
+            self._validate_columns()
+            
+            return {
+                "success": True,
+                "added_count": len(new_df),
+                "columns_updated": columns_updated,
+                "added_columns": list(added_columns) if added_columns else []
+            }
 
 
 def generate_columns_config_from_dataframe(df: pd.DataFrame) -> List[ColumnConfig]:

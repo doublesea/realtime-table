@@ -131,6 +131,13 @@ class NiceTable(ui.element):
             self.refresh_data()
         return result
 
+    def update_source(self, dataframe: pd.DataFrame):
+        """更新数据源 (使用外部管理的 DataFrame)"""
+        result = self.logic.update_dataframe(dataframe)
+        if result.get('columns_updated'):
+            self.refresh_columns()
+        self.refresh_data()
+
     def refresh_data(self):
         """通知前端刷新数据列表"""
         js_code = f"""
@@ -391,25 +398,13 @@ class NiceTable(ui.element):
             inst = get_target_instance(request)
             filters = payload.get('filters')
             filter_params = FilterParams(**filters) if filters else None
-            
-            # 记录请求信息
-            page = payload.get('page', 1)
-            page_size = payload.get('pageSize', inst.page_size)
-            total_before = inst.logic.total_count if hasattr(inst, 'logic') else 0
-            logger.debug(f"list请求: page={page}, page_size={page_size}, 当前总数据量={total_before}, 筛选条件={filters}")
-            
-            result = inst.logic.get_list(
+            return inst.logic.get_list(
                 filters=filter_params,
-                page=page,
-                page_size=page_size,
+                page=payload.get('page', 1),
+                page_size=payload.get('pageSize', inst.page_size),
                 sort_by=payload.get('sortBy'),
                 sort_order=payload.get('sortOrder'),
             )
-            
-            # 记录返回结果
-            logger.debug(f"list返回: total={result.get('total', 0)}, list长度={len(result.get('list', []))}, page={result.get('page', page)}")
-            
-            return result
 
         @router.post('/row-position')
         async def row_position(request: Request, payload: Dict[str, Any]):
@@ -453,10 +448,13 @@ class NiceTable(ui.element):
                 if col.filterType not in {'select', 'multi-select'}:
                     continue
                 try:
-                    part_main = inst.logic.dataframe[col.prop].dropna().unique()
-                    part_pending = inst.logic.pending_df[col.prop].dropna().unique()
-                    merged = sorted({str(v) for v in list(part_main) + list(part_pending)})
-                    options[col.prop] = merged
+                    # 从 col.options 获取（已在 add_data/update_dataframe 中更新）
+                    if col.options:
+                         options[col.prop] = col.options
+                    else:
+                         # 如果没有缓存的 options，尝试实时计算（兼容旧逻辑）
+                         unique_values = inst.logic.dataframe[col.prop].dropna().unique()
+                         options[col.prop] = sorted([str(v) for v in unique_values])
                 except Exception:
                     options[col.prop] = []
             return {'success': True, 'data': options}
@@ -467,17 +465,7 @@ class NiceTable(ui.element):
             data = payload.get('data')
             if not data:
                 raise HTTPException(status_code=400, detail='缺少 data')
-            
-            # 记录添加前的数据量
-            before_count = inst.logic.total_count if hasattr(inst, 'logic') else 0
-            logger.info(f"添加数据前: 当前数据量={before_count}, 新数据量={len(data) if isinstance(data, list) else 1}")
-            
             result = inst.add_data(data, refresh=True)
-            
-            # 记录添加后的数据量
-            after_count = inst.logic.total_count if hasattr(inst, 'logic') else 0
-            logger.info(f"添加数据后: 数据量={after_count}, 添加了={result.get('added_count', 0)}行")
-            
             return {'success': True, 'data': result}
 
         app.include_router(router)

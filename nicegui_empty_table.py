@@ -50,28 +50,42 @@ def main_page():
                 last_refresh_time = {'value': 0}  # 上次刷新时间
                 initial_load = {'flag': True}  # 标记是否为初始加载阶段
 
-                def add_batch_data():
+                async def add_batch_data():
                     """定时添加一批数据到 DataFrame 并刷新表格（使用增量添加优化性能）"""
                     if not auto_add_running['flag']:
                         return
                     
                     # 生成一批数据
-                    batch_size = 5000
-                    new_records = generate_batch_records(data_state['next_id'], batch_size)
-                    data_state['next_id'] += batch_size
+                    batch_size = 50000
+                    # 使用 asyncio.to_thread 避免阻塞主线程
+                    try:
+                        # 1. 生成数据 (CPU密集型)
+                        new_records = await asyncio.to_thread(generate_batch_records, data_state['next_id'], batch_size)
+                        data_state['next_id'] += batch_size
+                        
+                        # 2. 更新本地数据源 (CPU密集型 - pd.concat)
+                        # 数据源完全由本文件管理
+                        def update_local_df():
+                            new_df = pd.DataFrame(new_records)
+                            # 确保新数据中有 ID (虽然 generate_batch_records 会生成 id)
+                            # 如果有特殊的列处理逻辑，可以在这里添加
+                            return pd.concat([data_state['df_source'], new_df], ignore_index=True)
+                            
+                        data_state['df_source'] = await asyncio.to_thread(update_local_df)
+                        
+                    except Exception as e:
+                        print(f"添加数据出错: {e}")
+                        return
                     
-                    # 使用增量添加方法（性能优化：不会重建整个 DataTable）
-                    result = table.add_data(new_records, refresh=False)
-                    
-                    # 更新状态显示（使用 DataTable 的总数）
-                    total_count = table.logic.total_count
+                    # 更新状态显示
+                    total_count = len(data_state['df_source'])
                     status_label.text = f'状态：运行中（已添加 {total_count} 条）'
                     
-                    # 每1000行记录一次状态（用于调试）
-                    if total_count % 1000 == 0:
+                    # 每10000行记录一次状态（用于调试）
+                    if total_count % 10000 == 0:
                         import logging
                         logger = logging.getLogger(__name__)
-                        logger.info(f"数据量达到 {total_count} 行，DataFrame长度={len(table.logic.dataframe)}")
+                        logger.info(f"数据量达到 {total_count} 行")
                     
                     # 防抖机制：根据数据量调整刷新频率
                     current_time = time.time()
@@ -79,24 +93,21 @@ def main_page():
                     
                     # 初始加载阶段（前5000行）：每批都刷新，让用户看到过程
                     # 之后：每2批或超过0.8秒刷新一次，平衡性能和体验
+                    should_refresh = False
                     if initial_load['flag'] and total_count < 5000:
-                        # 初始阶段：每批都刷新
                         should_refresh = True
                     else:
                         # 初始阶段结束
                         if initial_load['flag']:
                             initial_load['flag'] = False
                         # 正常阶段：每2批或超过0.8秒刷新一次
-                        should_refresh = (
-                            refresh_pending['count'] >= 2 or  # 累积2批（1000行）
-                            (current_time - last_refresh_time['value']) >= 0.8  # 或超过0.8秒
-                        )
+                        if refresh_pending['count'] >= 2 or (current_time - last_refresh_time['value']) >= 0.8:
+                            should_refresh = True
                     
                     if should_refresh:
-                        # 检查列配置是否有变化
-                        if result.get('columns_updated', False):
-                            table.refresh_columns()
-                        table.refresh_data()
+                        # 3. 只在需要刷新时，通知表格控件更新数据源
+                        # 将最新的 DataFrame 传递给表格控件
+                        table.update_source(data_state['df_source'])
                         refresh_pending['count'] = 0
                         last_refresh_time['value'] = current_time
 
