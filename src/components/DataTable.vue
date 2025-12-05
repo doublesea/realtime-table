@@ -10,7 +10,9 @@
           :page-sizes="[50, 100, 200, 500]"
           :total="pagination.total"
           layout="total, sizes, prev, pager, next, jumper"
-          size="small"
+          background
+          :prev-icon="ArrowLeft"
+          :next-icon="ArrowRight"
           @size-change="handleSizeChange"
           @current-change="handlePageChange"
         />
@@ -383,7 +385,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, onUnmounted, nextTick, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Search, Refresh, Delete, Setting, ArrowDown, ArrowUp, Sort, Filter, Rank } from '@element-plus/icons-vue'
+import { Search, Refresh, Delete, Setting, ArrowDown, ArrowUp, Sort, Filter, Rank, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import { TableData, FilterParams, NumberFilter, RowDetail, ColumnConfig } from '../types'
 import type { ElTable } from 'element-plus'
 import type { FormInstance } from 'element-plus'
@@ -2103,6 +2105,21 @@ onMounted(async () => {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* Hide spin buttons for number input in pagination jumper */
+:deep(.el-pagination__jump input[type=number]::-webkit-inner-spin-button),
+:deep(.el-pagination__jump input[type=number]::-webkit-outer-spin-button) {
+  -webkit-appearance: none;
+  margin: 0;
+}
+:deep(.el-pagination__jump input[type=number]) {
+  -moz-appearance: textfield;
+}
+
+/* Force cursor to be pointer for pagination jumper input */
+:deep(.el-pagination__jump .el-input__inner) {
+  cursor: pointer;
 }
 
 </style>

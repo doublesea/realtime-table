@@ -56,7 +56,7 @@ def main_page():
                         return
                     
                     # 生成一批数据
-                    batch_size = 50000
+                    batch_size = 500
                     # 使用 asyncio.to_thread 避免阻塞主线程
                     try:
                         # 1. 生成数据 (CPU密集型)
@@ -107,7 +107,12 @@ def main_page():
                     if should_refresh:
                         # 3. 只在需要刷新时，通知表格控件更新数据源
                         # 将最新的 DataFrame 传递给表格控件
-                        table.update_source(data_state['df_source'])
+                        # 使用 asyncio.to_thread 避免 update_dataframe 中的计算阻塞主线程
+                        # 注意：update_dataframe 中包含了耗时的 unique() 计算
+                        result = await asyncio.to_thread(table.logic.update_dataframe, data_state['df_source'])
+                        if result.get('columns_updated'):
+                            table.refresh_columns()
+                        table.refresh_data()
                         refresh_pending['count'] = 0
                         last_refresh_time['value'] = current_time
 
@@ -146,4 +151,5 @@ def main_page():
 
 
 if __name__ in {"__main__", "__mp_main__"}:
-    ui.run(title='空表格自动添加数据演示', port=8081, show=True)
+    # 启动应用
+    ui.run(title='NiceTable 演示 (指针)', port=8081, show=True)

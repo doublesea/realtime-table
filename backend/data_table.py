@@ -726,8 +726,8 @@ class DataTable:
                             
                             if col_config.options != options:
                                 col_config.options = options
-                                # 仅 options 变化通常不需要前端重绘整个列，但为了安全起见，如果这里检测到变化，
-                                # 在首次加载或 filterType 变化时是有用的
+                                # options 变化需要通知前端刷新列配置，否则新出现的枚举值可能无法显示
+                                columns_updated = True
                     except Exception:
                         pass
             
@@ -939,8 +939,8 @@ class DataTable:
                             # 检查 options 是否有变化
                             if col_config.options != options:
                                 col_config.options = options
-                                # options 变化通常不需要强制刷新整个列配置，因为前端会通过 /filters 接口获取最新选项
-                                # 但如果是第一次生成 options，或者 filterType 发生变化，则需要
+                                # options 变化需要通知前端刷新列配置，否则新出现的枚举值可能无法显示
+                                columns_updated = True
                                 
                     except Exception as e:
                         # 如果更新失败，保持原有配置
