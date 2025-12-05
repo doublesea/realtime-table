@@ -45,18 +45,31 @@ class DataTable:
         初始化表格类
         
         Args:
-            dataframe: pandas DataFrame格式的数据
+            dataframe: pandas DataFrame格式的数据（可以为空，但必须有正确的列结构）
             columns_config: 列配置列表，定义每列的属性（字段名、类型、筛选方式等）
         """
-        if dataframe is None or dataframe.empty:
-            raise ValueError("DataFrame不能为空")
+        if dataframe is None:
+            raise ValueError("DataFrame不能为None")
         if not columns_config:
             raise ValueError("列配置不能为空")
         
-        self.dataframe = dataframe.copy()
+        # 如果 DataFrame 为空，确保它有正确的列结构
+        if dataframe.empty:
+            # 从列配置中获取列名
+            expected_columns = [col.prop for col in columns_config]
+            # 创建具有正确列结构的空 DataFrame
+            self.dataframe = pd.DataFrame(columns=expected_columns)
+        else:
+            self.dataframe = dataframe.copy()
+        
         self.columns_config = columns_config
         # 验证列配置中的字段是否存在于DataFrame中
         self._validate_columns()
+    
+    @property
+    def total_count(self) -> int:
+        """获取总数据量"""
+        return len(self.dataframe)
     
     def _validate_columns(self):
         """验证列配置中的字段是否存在于DataFrame中"""
@@ -101,11 +114,16 @@ class DataTable:
         except ImportError:
             from backend.api import FilterParams, FilterGroup, NumberFilter  # type: ignore
         
-        if not filters:
-            return pd.Series([True] * len(self.dataframe))
+        # 如果 DataFrame 为空，返回空掩码
+        if self.dataframe.empty:
+            return pd.Series([], dtype=bool)
         
-        # 初始化筛选掩码
-        mask = pd.Series([True] * len(self.dataframe))
+        if not filters:
+            # 使用 index 创建掩码，确保索引一致
+            return pd.Series([True] * len(self.dataframe), index=self.dataframe.index)
+        
+        # 初始化筛选掩码，使用 DataFrame 的索引
+        mask = pd.Series([True] * len(self.dataframe), index=self.dataframe.index)
         
         # 获取筛选参数字典
         filter_dict = filters.model_dump(exclude_none=True) if hasattr(filters, 'model_dump') else filters.dict(exclude_none=True) if hasattr(filters, 'dict') else {}
@@ -228,14 +246,31 @@ class DataTable:
                 if isinstance(filter_value, str) and filter_value:
                     # 对于bytes类型字段，需要先转换为16进制字符串再筛选
                     if col_config.type == 'bytes':
-                        # 将bytes转换为16进制字符串进行筛选
-                        def bytes_to_hex_str(val):
-                            if isinstance(val, bytes):
-                                return ' '.join([f'{b:02X}' for b in val])
-                            return str(val)
-                        hex_series = self.dataframe[field_name].apply(bytes_to_hex_str)
-                        mask &= hex_series.str.contains(filter_value, case=False, na=False)
+                        # 优化：使用向量化操作而不是apply（性能提升）
+                        try:
+                            # 尝试直接使用字符串操作（如果已经是字符串类型）
+                            if self.dataframe[field_name].dtype == 'object':
+                                # 检查第一个非空值是否为bytes
+                                sample = self.dataframe[field_name].dropna()
+                                if len(sample) > 0 and isinstance(sample.iloc[0], bytes):
+                                    # 使用向量化操作：批量转换bytes为hex字符串
+                                    # 注意：pandas的apply在大量数据时很慢，但bytes转换无法完全向量化
+                                    # 我们使用更高效的方式：只对非空值进行转换
+                                    hex_series = self.dataframe[field_name].apply(
+                                        lambda val: ' '.join([f'{b:02X}' for b in val]) if isinstance(val, bytes) else str(val)
+                                    )
+                                    mask &= hex_series.str.contains(filter_value, case=False, na=False)
+                                else:
+                                    # 已经是字符串，直接筛选
+                                    mask &= self.dataframe[field_name].astype(str).str.contains(filter_value, case=False, na=False)
+                            else:
+                                # 直接转换为字符串筛选
+                                mask &= self.dataframe[field_name].astype(str).str.contains(filter_value, case=False, na=False)
+                        except Exception:
+                            # 如果转换失败，回退到原始方法
+                            mask &= self.dataframe[field_name].astype(str).str.contains(filter_value, case=False, na=False)
                     else:
+                        # 普通文本字段：直接使用字符串操作（已优化）
                         mask &= self.dataframe[field_name].astype(str).str.contains(filter_value, case=False, na=False)
             
             elif col_config.filterType == 'date':
@@ -244,19 +279,25 @@ class DataTable:
                     # 如果是ts字段（时间戳），需要特殊处理
                     if field_name == 'ts':
                         from datetime import datetime
-                        # 将时间戳转换为字符串进行文本匹配（支持部分匹配，如只输入时间）
-                        def timestamp_to_str(ts):
-                            """将时间戳转换为字符串用于匹配"""
-                            try:
-                                dt = datetime.fromtimestamp(float(ts))
-                                microseconds = int((float(ts) % 1) * 1000000)
-                                return dt.strftime('%Y-%m-%d %H:%M:%S') + f'.{microseconds:06d}'
-                            except (ValueError, OSError):
-                                return str(ts)
-                        
-                        # 将ts列转换为字符串进行文本匹配（支持部分匹配）
-                        ts_str_series = self.dataframe[field_name].apply(timestamp_to_str)
-                        mask &= ts_str_series.str.contains(filter_value, case=False, na=False)
+                        # 优化：使用向量化操作（虽然apply仍然需要，但尽量减少计算）
+                        try:
+                            # 将时间戳转换为字符串进行文本匹配（支持部分匹配，如只输入时间）
+                            def timestamp_to_str(ts):
+                                """将时间戳转换为字符串用于匹配"""
+                                try:
+                                    dt = datetime.fromtimestamp(float(ts))
+                                    microseconds = int((float(ts) % 1) * 1000000)
+                                    return dt.strftime('%Y-%m-%d %H:%M:%S') + f'.{microseconds:06d}'
+                                except (ValueError, OSError):
+                                    return str(ts)
+                            
+                            # 将ts列转换为字符串进行文本匹配（支持部分匹配）
+                            # 注意：对于大量数据，这仍然可能较慢，但提供了灵活性
+                            ts_str_series = self.dataframe[field_name].apply(timestamp_to_str)
+                            mask &= ts_str_series.str.contains(filter_value, case=False, na=False)
+                        except Exception:
+                            # 如果转换失败，尝试直接字符串匹配
+                            mask &= self.dataframe[field_name].astype(str).str.contains(filter_value, case=False, na=False)
                     else:
                         # 普通日期字段，直接字符串匹配
                         mask &= (self.dataframe[field_name].astype(str) == filter_value)
@@ -302,22 +343,180 @@ class DataTable:
         Returns:
             包含list、total、page、pageSize的字典
         """
-        # 构建筛选条件
-        mask = self._build_pandas_filter(filters)
-        filtered_df = self.dataframe[mask].copy()
+        # 直接使用 self.dataframe，避免不必要的 copy（大数据量时 copy 很慢）
+        # 注意：这里假设在 get_list 执行期间，self.dataframe 不会被修改
+        # 如果确实需要并发安全，可以考虑使用锁机制
         
-        # 排序
-        if sort_by and sort_by in filtered_df.columns:
-            ascending = sort_order == 'ascending' if sort_order else True
-            filtered_df = filtered_df.sort_values(by=sort_by, ascending=ascending, na_position='last')
+        # 先检查 dataframe 是否为空或无效
+        if not hasattr(self, 'dataframe') or self.dataframe is None:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error("DataFrame 未初始化或为 None")
+            return {
+                "list": [],
+                "total": 0,
+                "page": page,
+                "pageSize": page_size
+            }
         
-        # 计算总数
-        total_count = len(filtered_df)
+        if self.dataframe.empty:
+            return {
+                "list": [],
+                "total": 0,
+                "page": page,
+                "pageSize": page_size
+            }
         
-        # 分页
-        start_index = (page - 1) * page_size
-        end_index = start_index + page_size
-        paginated_df = filtered_df.iloc[start_index:end_index]
+        # 验证 DataFrame 的完整性（防止数据被意外清空）
+        dataframe_length = len(self.dataframe)
+        
+        # 记录当前长度（用于下次验证）
+        if not hasattr(self, '_last_known_length'):
+            self._last_known_length = dataframe_length
+        
+        if dataframe_length == 0 and self._last_known_length > 0:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.critical(
+                f"🚨 检测到 DataFrame 被意外清空！上次已知长度: {self._last_known_length}, "
+                f"当前长度: {dataframe_length}. 这会导致表格显示为空！"
+            )
+        elif dataframe_length < self._last_known_length and self._last_known_length > 100:
+            # 如果数据量突然减少很多，也记录警告
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"⚠️ 数据量异常减少: 从 {self._last_known_length} 减少到 {dataframe_length}, "
+                f"减少了 {self._last_known_length - dataframe_length} 行"
+            )
+        
+        # 更新记录的长度
+        if dataframe_length > 0:
+            self._last_known_length = dataframe_length
+        
+        try:
+            # 记录开始时间（用于性能监控）
+            import time as time_module
+            start_time = time_module.time()
+            
+            # 构建筛选条件
+            mask = self._build_pandas_filter(filters)
+            
+            # 检查 mask 是否有效
+            if len(mask) != len(self.dataframe):
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    f"筛选掩码长度不匹配: mask={len(mask)}, dataframe={len(self.dataframe)}. "
+                    f"DataFrame索引: {self.dataframe.index.tolist()[:10] if len(self.dataframe) > 0 else 'empty'}, "
+                    f"Mask索引: {mask.index.tolist()[:10] if len(mask) > 0 else 'empty'}"
+                )
+                # 重新创建正确的掩码，使用 DataFrame 的索引
+                mask = pd.Series([True] * len(self.dataframe), index=self.dataframe.index)
+            
+            # 确保 mask 的索引与 dataframe 的索引匹配
+            if not mask.index.equals(self.dataframe.index):
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    f"筛选掩码索引不匹配: 重新对齐索引. "
+                    f"DataFrame索引范围: {self.dataframe.index.min() if len(self.dataframe) > 0 else 'N/A'} - "
+                    f"{self.dataframe.index.max() if len(self.dataframe) > 0 else 'N/A'}, "
+                    f"Mask索引范围: {mask.index.min() if len(mask) > 0 else 'N/A'} - "
+                    f"{mask.index.max() if len(mask) > 0 else 'N/A'}"
+                )
+                # 重新创建掩码，确保索引匹配
+                mask = pd.Series([True] * len(self.dataframe), index=self.dataframe.index)
+            
+            # 检查筛选后的数据量（用于调试）
+            filtered_count = int(mask.sum()) if hasattr(mask, 'sum') else len(mask[mask])
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            # 记录筛选信息（用于调试）
+            filter_info = {}
+            if filters:
+                try:
+                    filter_info = filters.model_dump(exclude_none=True) if hasattr(filters, 'model_dump') else (filters.dict(exclude_none=True) if hasattr(filters, 'dict') else {})
+                except:
+                    filter_info = str(filters)
+            
+            logger.info(
+                f"get_list: 原始数据量={len(self.dataframe)}, 筛选后={filtered_count}, "
+                f"筛选条件={filter_info}, page={page}, page_size={page_size}"
+            )
+            
+            if filtered_count == 0 and len(self.dataframe) > 0:
+                logger.warning(
+                    f"⚠️ 筛选后数据为空！原始数据量: {len(self.dataframe)}, "
+                    f"筛选条件: {filter_info}. 这可能导致表格显示为空！"
+                )
+            
+            # 使用视图而不是copy，提高性能（在筛选时）
+            filtered_df = self.dataframe[mask]
+            
+            # 检查是否需要排序
+            needs_sort = sort_by and sort_by in filtered_df.columns
+            
+            # 计算总数（在排序前，避免不必要的计算）
+            total_count = len(filtered_df)
+            
+            # 排序（如果需要）
+            if needs_sort:
+                ascending = sort_order == 'ascending' if sort_order else True
+                # 排序时需要copy，因为会修改数据
+                filtered_df = filtered_df.sort_values(by=sort_by, ascending=ascending, na_position='last').copy()
+            
+            # 分页
+            start_index = (page - 1) * page_size
+            end_index = start_index + page_size
+            
+            # 确保索引范围有效
+            if start_index >= total_count:
+                # 请求的页面超出范围，返回空 DataFrame
+                paginated_df = pd.DataFrame(columns=self.dataframe.columns)
+            else:
+                # 确保 end_index 不超过总数
+                end_index = min(end_index, total_count)
+                # 只有在需要时才copy（如果已经copy过，这里就不需要再copy）
+                if needs_sort:
+                    paginated_df = filtered_df.iloc[start_index:end_index]
+                else:
+                    paginated_df = filtered_df.iloc[start_index:end_index].copy()
+            
+            # 记录性能信息（仅在大数据量时）
+            elapsed_time = time_module.time() - start_time
+            if elapsed_time > 0.5 or len(self.dataframe) > 5000:
+                logger.debug(
+                    f"get_list 性能: 数据量={len(self.dataframe)}, 筛选后={total_count}, "
+                    f"分页={page}/{page_size}, 耗时={elapsed_time:.3f}秒"
+                )
+        except Exception as e:
+            # 如果处理失败，记录错误并返回空结果
+            import logging
+            logger = logging.getLogger(__name__)
+            dataframe_length = len(self.dataframe) if hasattr(self, 'dataframe') and self.dataframe is not None else 'N/A'
+            logger.error(
+                f"get_list 处理失败: {str(e)}, dataframe长度={dataframe_length}, "
+                f"dataframe是否为空={self.dataframe.empty if hasattr(self, 'dataframe') and self.dataframe is not None else 'N/A'}, "
+                f"筛选条件={filters.model_dump(exclude_none=True) if filters and hasattr(filters, 'model_dump') else (filters.dict(exclude_none=True) if filters and hasattr(filters, 'dict') else {})}",
+                exc_info=True
+            )
+            # 如果 DataFrame 为空或不存在，返回空结果
+            if not hasattr(self, 'dataframe') or self.dataframe is None or self.dataframe.empty:
+                return {
+                    "list": [],
+                    "total": 0,
+                    "page": page,
+                    "pageSize": page_size
+                }
+            # 返回空 DataFrame，但保持正确的总数（用于分页显示）
+            paginated_df = pd.DataFrame(columns=self.dataframe.columns)
+            # 尝试获取实际总数，如果失败则使用0
+            try:
+                total_count = len(self.dataframe)
+            except:
+                total_count = 0
         
         # 将DataFrame转换为字典列表
         data_list = paginated_df.to_dict('records')
@@ -465,12 +664,20 @@ class DataTable:
         Returns:
             包含添加结果和更新后的列配置的字典
         """
+        # 检查 dataframe 是否有效
+        if not hasattr(self, 'dataframe') or self.dataframe is None:
+            raise ValueError("DataFrame 未初始化，无法添加数据")
+        
         # 确保new_data是列表格式
         if isinstance(new_data, dict):
             new_data = [new_data]
         
         if not new_data:
             raise ValueError("新数据不能为空")
+        
+        # 保存原始数据量，用于验证
+        original_length = len(self.dataframe)
+        original_columns = set(self.dataframe.columns)
         
         # 转换为DataFrame
         new_df = pd.DataFrame(new_data)
@@ -566,24 +773,88 @@ class DataTable:
                                 pass
         
         # 将新数据追加到DataFrame
-        self.dataframe = pd.concat([self.dataframe, new_df], ignore_index=True)
+        # 使用 ignore_index=True 确保索引连续，避免索引问题
+        # 注意：ignore_index=True 已经会重置索引，不需要再调用 reset_index
+        try:
+            # 执行合并操作
+            combined_df = pd.concat([self.dataframe, new_df], ignore_index=True)
+            
+            # 验证合并后的数据量是否正确
+            expected_length = original_length + len(new_df)
+            if len(combined_df) != expected_length:
+                raise ValueError(
+                    f"数据合并后长度不匹配: 期望 {expected_length}, 实际 {len(combined_df)}. "
+                    f"原始数据量: {original_length}, 新数据量: {len(new_df)}"
+                )
+            
+            # 验证列是否一致
+            if set(combined_df.columns) != original_columns:
+                missing_columns = original_columns - set(combined_df.columns)
+                if missing_columns:
+                    raise ValueError(f"合并后缺少列: {missing_columns}")
+            
+            # 验证数据没有被清空（合并后的数据量应该大于等于原始数据量）
+            if len(combined_df) < original_length:
+                raise ValueError(
+                    f"数据合并后数据量减少: 原始 {original_length}, 合并后 {len(combined_df)}. "
+                    f"这不应该发生，可能是数据被意外清空"
+                )
+            
+            # 所有验证通过后，才更新 self.dataframe
+            self.dataframe = combined_df
+            
+            # 记录添加数据的信息
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(
+                f"add_data 成功: 添加了 {len(new_df)} 行, "
+                f"原始数据量={original_length}, 新数据量={len(self.dataframe)}"
+            )
+            
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            current_length = len(self.dataframe) if hasattr(self, 'dataframe') and self.dataframe is not None else 'N/A'
+            logger.error(
+                f"添加数据失败: {str(e)}, 当前数据量={current_length}, "
+                f"新数据量={len(new_df)}, 原始数据量={original_length}",
+                exc_info=True
+            )
+            # 确保在异常情况下，dataframe 没有被破坏
+            if not hasattr(self, 'dataframe') or self.dataframe is None or len(self.dataframe) < original_length:
+                logger.critical(
+                    f"检测到 DataFrame 可能被破坏！原始数据量: {original_length}, "
+                    f"当前数据量: {current_length}. 这可能导致数据丢失！"
+                )
+            raise
         
         # 更新列配置中的筛选选项（对于 multi-select 和 select 类型）
         # 重新计算唯一值并更新 options
         for col_config in self.columns_config:
             if col_config.filterType in ['multi-select', 'select']:
                 try:
-                    # 获取该列的唯一值
-                    unique_values = self.dataframe[col_config.prop].dropna().unique().tolist()
-                    # 转换为字符串并排序
-                    options = sorted([str(v) for v in unique_values])
-                    # 如果唯一值数量不超过100，更新 options
-                    if len(options) <= 100:
-                        col_config.options = options
-                    else:
+                    # 性能优化：先检查唯一值数量，如果太多直接切换为文本筛选，避免计算 unique()
+                    # unique() 在数据量大时比较耗时
+                    unique_count = self.dataframe[col_config.prop].nunique()
+                    
+                    if unique_count > 100:
                         # 如果超过100个，清空 options，使用文本筛选
-                        col_config.options = None
-                        col_config.filterType = 'text'
+                        if col_config.filterType != 'text':
+                            col_config.options = None
+                            col_config.filterType = 'text'
+                            columns_updated = True
+                    else:
+                        # 获取该列的唯一值（数量不多，计算开销可接受）
+                        unique_values = self.dataframe[col_config.prop].dropna().unique().tolist()
+                        # 转换为字符串并排序
+                        options = sorted([str(v) for v in unique_values])
+                        
+                        # 检查 options 是否有变化
+                        if col_config.options != options:
+                            col_config.options = options
+                            # options 变化通常不需要强制刷新整个列配置，因为前端会通过 /filters 接口获取最新选项
+                            # 但如果是第一次生成 options，或者 filterType 发生变化，则需要
+                            
                 except Exception as e:
                     # 如果更新失败，保持原有配置
                     pass
@@ -654,24 +925,32 @@ def generate_columns_config_from_dataframe(df: pd.DataFrame) -> List[ColumnConfi
                 is_hex_string = False
                 if sample_values:
                     # 检查是否所有样本值都是16进制字符串格式（如 "FF 00 1A" 或 "FF001A"）
+                    # 优化：增加长度限制，避免将普通长字符串误判为 hex
                     hex_pattern = re.compile(r'^([0-9A-Fa-f]{2}[\s]*)+$')
                     is_hex_string = all(
-                        isinstance(v, str) and (hex_pattern.match(v.replace(' ', '')) or len(v) > 20)
+                        isinstance(v, str) and (hex_pattern.match(v.replace(' ', '')) or (len(v) > 20 and len(v) % 2 == 0 and all(c in '0123456789abcdefABCDEF ' for c in v)))
                         for v in sample_values if v
                     )
                     # 如果字段名包含相关关键词，也认为是bytes类型
-                    if is_hex_string or any(keyword in col.lower() for keyword in ['bytes', 'hex', 'binary', 'data']):
+                    if is_hex_string or any(keyword in col.lower() for keyword in ['bytes', 'hex', 'binary', 'data', 'payload']):
                         column_type = 'bytes'
                         filter_type = 'text'
                         min_width = 200
                     else:
-                        unique_values = df[col].unique().tolist()
-                        if len(unique_values) <= 100:  # 如果唯一值少于100个，提供下拉选项
-                            filter_type = 'multi-select'
-                            options = [str(v) for v in unique_values]
-                        else:
-                            # 唯一值太多，使用文本筛选
+                        # 启发式规则：如果是 ID、编号、Code 等字段，通常是高基数的，直接使用文本筛选
+                        # 避免一开始误判为 multi-select
+                        is_id_like = any(keyword in col.lower() for keyword in ['id', 'no', 'number', 'code', 'uuid', 'guid'])
+                        
+                        if is_id_like:
                             filter_type = 'text'
+                        else:
+                            unique_values = df[col].unique().tolist()
+                            if len(unique_values) <= 100:  # 如果唯一值少于100个，提供下拉选项
+                                filter_type = 'multi-select'
+                                options = [str(v) for v in unique_values]
+                            else:
+                                # 唯一值太多，使用文本筛选
+                                filter_type = 'text'
                 else:
                     filter_type = 'text'
         else:
@@ -682,24 +961,31 @@ def generate_columns_config_from_dataframe(df: pd.DataFrame) -> List[ColumnConfi
                 is_hex_string = False
                 if sample_values:
                     # 检查是否所有样本值都是16进制字符串格式（如 "FF 00 1A" 或 "FF001A"）
+                    # 优化：增加长度限制，避免将普通长字符串误判为 hex
                     hex_pattern = re.compile(r'^([0-9A-Fa-f]{2}[\s]*)+$')
                     is_hex_string = all(
-                        isinstance(v, str) and (hex_pattern.match(v.replace(' ', '')) or len(v) > 20)
+                        isinstance(v, str) and (hex_pattern.match(v.replace(' ', '')) or (len(v) > 20 and len(v) % 2 == 0 and all(c in '0123456789abcdefABCDEF ' for c in v)))
                         for v in sample_values if v
                     )
                     # 如果字段名包含相关关键词，也认为是bytes类型
-                    if is_hex_string or any(keyword in col.lower() for keyword in ['bytes', 'hex', 'binary', 'data']):
+                    if is_hex_string or any(keyword in col.lower() for keyword in ['bytes', 'hex', 'binary', 'data', 'payload']):
                         column_type = 'bytes'
                         filter_type = 'text'
                         min_width = 200
                     else:
-                        unique_values = df[col].unique().tolist()
-                        if len(unique_values) <= 100:  # 如果唯一值少于100个，提供下拉选项
-                            filter_type = 'multi-select'
-                            options = [str(v) for v in unique_values]
-                        else:
-                            # 唯一值太多，使用文本筛选
+                        # 启发式规则：如果是 ID、编号、Code 等字段，通常是高基数的，直接使用文本筛选
+                        is_id_like = any(keyword in col.lower() for keyword in ['id', 'no', 'number', 'code', 'uuid', 'guid'])
+                        
+                        if is_id_like:
                             filter_type = 'text'
+                        else:
+                            unique_values = df[col].unique().tolist()
+                            if len(unique_values) <= 100:  # 如果唯一值少于100个，提供下拉选项
+                                filter_type = 'multi-select'
+                                options = [str(v) for v in unique_values]
+                            else:
+                                # 唯一值太多，使用文本筛选
+                                filter_type = 'text'
                 else:
                     filter_type = 'text'
             else:

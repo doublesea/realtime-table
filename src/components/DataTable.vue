@@ -2,12 +2,24 @@
   <el-card class="table-card" :body-style="{ padding: '16px', display: 'flex', flexDirection: 'column', height: '100%' }">
     <!-- 工具栏 -->
     <div class="toolbar" style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
-      <div>
+      <!-- Left: Pagination -->
+      <div style="display: flex; gap: 12px; align-items: center;">
+        <el-pagination
+          v-model:current-page="pagination.page"
+          v-model:page-size="pagination.pageSize"
+          :page-sizes="[50, 100, 200, 500]"
+          :total="pagination.total"
+          layout="total, sizes, prev, pager, next, jumper"
+          size="small"
+          @size-change="handleSizeChange"
+          @current-change="handlePageChange"
+        />
+      </div>
+      <!-- Right: Column Settings, Reset -->
+      <div style="display: flex; gap: 12px; align-items: center;">
         <el-button :icon="Setting" size="small" @click="showColumnSettings = true">
           列设置
         </el-button>
-      </div>
-      <div>
         <el-button :icon="Refresh" size="small" @click="handleReset">重置所有筛选</el-button>
       </div>
     </div>
@@ -322,106 +334,6 @@
       </el-table>
     </div>
 
-    <!-- 分页 -->
-    <div class="pagination-container" style="flex-shrink: 0; margin-top: 16px;">
-      <el-pagination
-        v-model:current-page="pagination.page"
-        v-model:page-size="pagination.pageSize"
-        :page-sizes="[50, 100, 200, 500]"
-        :total="pagination.total"
-        layout="total, sizes, prev, pager, next, jumper"
-        style="justify-content: flex-end"
-        @size-change="handleSizeChange"
-        @current-change="handlePageChange"
-      />
-    </div>
-
-    <!-- 添加数据弹窗 -->
-    <el-dialog
-      v-model="showAddDataDialog"
-      title="添加数据"
-      width="600px"
-      :close-on-click-modal="false"
-    >
-      <div class="add-data-content">
-        <el-form :model="newDataForm" label-width="120px" ref="newDataFormRef">
-          <el-form-item
-            v-for="col in orderedColumns"
-            :key="col.prop"
-            :label="col.label"
-            :prop="col.prop"
-          >
-            <el-input
-              v-if="col.type === 'string' || (col.filterType === 'text' && col.type !== 'number' && col.type !== 'date' && col.type !== 'bytes')"
-              v-model="newDataForm[col.prop]"
-              :placeholder="`请输入${col.label}`"
-              clearable
-            />
-            <el-input-number
-              v-else-if="col.type === 'number'"
-              v-model="newDataForm[col.prop]"
-              :placeholder="`请输入${col.label}`"
-              style="width: 100%"
-            />
-            <el-date-picker
-              v-else-if="col.type === 'date' && col.prop !== 'ts'"
-              v-model="newDataForm[col.prop]"
-              type="date"
-              :placeholder="`请选择${col.label}`"
-              format="YYYY-MM-DD"
-              value-format="YYYY-MM-DD"
-              style="width: 100%"
-            />
-            <el-input
-              v-else-if="col.prop === 'ts'"
-              v-model="newDataForm[col.prop]"
-              :placeholder="'格式: YYYY-MM-DD HH:MM:SS.ffffff 或 YYYY-MM-DD'"
-              clearable
-            />
-            <el-input
-              v-else-if="col.type === 'bytes'"
-              v-model="newDataForm[col.prop]"
-              :placeholder="'16进制格式，如: FF 00 1A'"
-              clearable
-            />
-            <el-select
-              v-else-if="col.filterType === 'multi-select' || col.filterType === 'select'"
-              v-model="newDataForm[col.prop]"
-              :placeholder="`请选择${col.label}`"
-              clearable
-              style="width: 100%"
-            >
-              <el-option
-                v-for="option in getFilterOptions(col.prop)"
-                :key="option"
-                :label="option"
-                :value="option"
-              />
-            </el-select>
-            <el-input
-              v-else
-              v-model="newDataForm[col.prop]"
-              :placeholder="`请输入${col.label}`"
-              clearable
-            />
-          </el-form-item>
-        </el-form>
-        <div style="margin-top: 16px; color: #909399; font-size: 12px;">
-          <p>提示：</p>
-          <ul style="margin: 8px 0; padding-left: 20px;">
-            <li>ID字段会自动生成，无需填写</li>
-            <li>如果字段为空，将使用默认值或留空</li>
-            <li>时间戳字段(ts)支持日期时间格式</li>
-            <li>Bytes类型字段支持16进制格式（如: FF 00 1A）</li>
-          </ul>
-        </div>
-      </div>
-      <template #footer>
-        <el-button @click="showAddDataDialog = false">取消</el-button>
-        <el-button type="primary" @click="handleAddData" :loading="addingData">确定</el-button>
-      </template>
-    </el-dialog>
-
     <!-- 列设置弹窗 -->
     <el-dialog
       v-model="showColumnSettings"
@@ -473,9 +385,83 @@ import { ref, reactive, onMounted, onUnmounted, nextTick, computed, watch } from
 import { ElMessage } from 'element-plus'
 import { Search, Refresh, Delete, Setting, ArrowDown, ArrowUp, Sort, Filter, Rank } from '@element-plus/icons-vue'
 import { TableData, FilterParams, NumberFilter, RowDetail, ColumnConfig } from '../types'
-import { dataApi } from '../api/data'
 import type { ElTable } from 'element-plus'
 import type { FormInstance } from 'element-plus'
+import axios from 'axios'
+
+// Props definition
+const props = defineProps<{
+  apiUrl: string
+}>()
+
+// 获取 tableId 从 DOM
+const getTableId = (): string | null => {
+  const root = document.getElementById('root')
+  return root?.dataset.tableId || null
+}
+
+// Define API client with automatic x-table-id header injection
+const createApi = (baseUrl: string) => {
+  const client = axios.create({
+    baseURL: baseUrl || '',
+    timeout: 30000
+  })
+  
+  // 添加请求拦截器，自动注入 x-table-id header
+  client.interceptors.request.use((config) => {
+    const tableId = getTableId()
+    if (tableId && config.headers) {
+      config.headers['x-table-id'] = tableId
+    }
+    return config
+  })
+  
+  return {
+    getList: async (params: any) => {
+      const response = await client.post('/list', params)
+      const data = response.data
+      // 处理响应格式
+      if (data.success && data.data) {
+        return data.data
+      }
+      return data
+    },
+    getColumnsConfig: async () => {
+      const response = await client.get('/columns')
+      const data = response.data
+      if (data.success && data.data) {
+        return data.data
+      }
+      return data
+    },
+    getRowDetail: async (row: any) => {
+      const response = await client.post('/row-detail', { row })
+      const data = response.data
+      if (data.success && data.data) {
+        return data.data
+      }
+      return data
+    },
+    getRowPosition: async (row_id: any, filters?: any) => {
+      const response = await client.post('/row-position', { row_id, filters })
+      const data = response.data
+      if (data.success && data.data) {
+        return data.data
+      }
+      return data
+    },
+    getFilterOptions: async () => {
+      const response = await client.get('/filters')
+      const data = response.data
+      if (data.success && data.data) {
+        return data.data
+      }
+      return data
+    }
+  }
+}
+
+const dataApi = createApi(props.apiUrl)
 
 // 响应式数据
 const tableData = ref<TableData[]>([])
@@ -505,15 +491,11 @@ const columnWidths = reactive<Record<string, number>>({})
 // 列设置弹窗显示状态
 const showColumnSettings = ref(false)
 
-// 添加数据相关状态
+// 添加数据相关状态 (Removed add data dialog logic as per refactoring requirement to minimal component)
 const showAddDataDialog = ref(false)
 const addingData = ref(false)
 const newDataForm = reactive<Record<string, any>>({})
 const newDataFormRef = ref<FormInstance>()
-
-// 自动添加数据相关状态
-const autoAddRunning = ref(false)
-const autoAddLoading = ref(false)
 
 // 拖拽相关状态
 const dragIndex = ref<number | null>(null)
@@ -672,6 +654,10 @@ const loadData = async (keepSelectedRow = false, silent = false) => {
     loading.value = true
   }
   try {
+    // 保存刷新前的状态（用于判断是否需要自动跳转到最新数据）
+    const previousPage = pagination.page
+    const previousTotal = pagination.total
+    
     const filters: FilterParams = {}
     
     // 动态构建筛选条件，基于列配置
@@ -774,94 +760,70 @@ const loadData = async (keepSelectedRow = false, silent = false) => {
     pagination.page = response.page
     pagination.pageSize = response.pageSize
     
-    // 调试信息：如果是静默刷新，输出日志
-    if (silent) {
-      console.log(`[自动刷新] 总数据: ${pagination.total}, 当前页: ${pagination.page}/${Math.ceil(pagination.total / pagination.pageSize)}, 当前页数据量: ${tableData.value.length}`)
-    }
-    
     // 数据加载完成后
     await nextTick()
     
-    // 如果是静默刷新（自动刷新），跳转到最后一页并选中最后一行
+    // 如果是静默刷新（自动刷新），检查是否需要自动跳转到最新数据
     if (silent) {
-      // 计算总页数
-      const totalPages = Math.ceil(pagination.total / pagination.pageSize)
-      console.log(`[自动刷新] 计算总页数: ${totalPages}, 当前页: ${pagination.page}, 总数据: ${pagination.total}, 每页: ${pagination.pageSize}`)
+      // 计算刷新前后的最后一页
+      const previousLastPage = previousTotal > 0 ? Math.ceil(previousTotal / pagination.pageSize) : 1
+      const newLastPage = pagination.total > 0 ? Math.ceil(pagination.total / pagination.pageSize) : 1
       
-      if (totalPages > 0 && pagination.page !== totalPages) {
-        // 如果不在最后一页，跳转到最后一页并重新加载
-        console.log(`[自动刷新] 跳转到最后一页: ${totalPages}`)
-        pagination.page = totalPages
-        // 重新请求最后一页的数据
-        const lastPageResponse = await dataApi.getList({
-          page: totalPages,
-          pageSize: pagination.pageSize,
-          filters: requestFilters,
-          sortBy: sortBy,
-          sortOrder: sortOrder
-        })
-        tableData.value = lastPageResponse.list
-        pagination.total = lastPageResponse.total
-        pagination.page = lastPageResponse.page
-        pagination.pageSize = lastPageResponse.pageSize
-        
-        console.log(`[自动刷新] 最后一页数据加载完成，数据量: ${tableData.value.length}`)
-        
-        // 选中最后一行
-        await nextTick()
-        if (tableData.value.length > 0) {
-          const lastRow = tableData.value[tableData.value.length - 1]
-          console.log(`[自动刷新] 选中最后一行，ID: ${lastRow.id}`)
-          selectedRowId.value = lastRow.id
-          if (tableRef.value) {
-            tableRef.value.setCurrentRow(lastRow)
+      // 判断是否应该自动跳转到最后一页显示最新数据
+      // 条件: 按ID排序，且用户在最后一页或接近最后一页
+      const isIdSort = sortBy === 'id'
+      const wasOnLastPage = previousPage >= previousLastPage - 1  // 在最后一页或倒数第二页
+      const hasNewData = pagination.total > previousTotal  // 有新数据添加
+      
+      if (isIdSort && wasOnLastPage && hasNewData) {
+        if (sortOrder === 'ascending') {
+          // 升序：新数据在最后，跳转到新的最后一页
+          if (newLastPage !== pagination.page) {
+            pagination.page = newLastPage
+            // 重新加载最后一页的数据
+            const lastPageParams = {
+              page: newLastPage,
+              pageSize: pagination.pageSize,
+              filters: requestFilters,
+              sortBy: sortBy,
+              sortOrder: sortOrder
+            }
+            const lastPageResponse = await dataApi.getList(lastPageParams)
+            tableData.value = lastPageResponse.list
+            pagination.page = lastPageResponse.page
+            await nextTick()
           }
-          setTimeout(() => {
-            scrollToLastRow()
-          }, 100)
+        } else if (sortOrder === 'descending') {
+          // 降序：新数据在第一页，跳转到第一页
+          if (pagination.page !== 1) {
+            pagination.page = 1
+            const firstPageParams = {
+              page: 1,
+              pageSize: pagination.pageSize,
+              filters: requestFilters,
+              sortBy: sortBy,
+              sortOrder: sortOrder
+            }
+            const firstPageResponse = await dataApi.getList(firstPageParams)
+            tableData.value = firstPageResponse.list
+            pagination.page = firstPageResponse.page
+            await nextTick()
+          }
         }
-        return
       }
-      // 已经在最后一页，选中最后一行
-      if (tableData.value.length > 0) {
-        const lastRow = tableData.value[tableData.value.length - 1]
-        console.log(`[自动刷新] 已在最后一页，选中最后一行，ID: ${lastRow.id}`)
-        selectedRowId.value = lastRow.id
-        if (tableRef.value) {
-          tableRef.value.setCurrentRow(lastRow)
-        }
-        setTimeout(() => {
-          scrollToLastRow()
-        }, 100)
-      }
-    } else if (selectedRowId.value !== null && shouldKeepSelected) {
-      // 如果选中了行且需要保持选中状态，恢复选中状态
-      // 查找选中行在当前页数据中的位置
+    }
+
+    if (selectedRowId.value !== null && shouldKeepSelected) {
       const selectedRow = tableData.value.find(row => row.id === selectedRowId.value)
       if (selectedRow) {
-        // 设置表格的当前行，触发 highlight-current-row 高亮
         if (tableRef.value) {
           tableRef.value.setCurrentRow(selectedRow)
         }
-        // 使用setTimeout确保DOM完全渲染后再滚动
-        setTimeout(() => {
-          scrollToSelectedRow()
-        }, 100)
-      } else {
-        // 如果选中行不在当前页，但仍然在筛选结果中（已跳转到对应页面），尝试再次查找
-        // 延迟一点时间，确保表格已完全渲染
-        setTimeout(() => {
-          const row = tableData.value.find(r => r.id === selectedRowId.value)
-          if (row && tableRef.value) {
-            tableRef.value.setCurrentRow(row)
-            scrollToSelectedRow()
-          }
-        }, 150)
       }
     }
   } catch (error: any) {
     const errorMsg = error?.response?.data?.detail || error?.message || '加载数据失败'
-    ElMessage.error(`加载数据失败: ${errorMsg}`)
+    if (!silent) ElMessage.error(`加载数据失败: ${errorMsg}`)
   } finally {
     loading.value = false
     silentLoading.value = false
@@ -1540,7 +1502,6 @@ const refreshFilterOptions = async () => {
     Object.keys(options).forEach(prop => {
       filterOptions[prop] = options[prop]
     })
-    console.log('[筛选选项] 已刷新筛选选项:', options)
   } catch (error) {
     console.error('[筛选选项] 刷新筛选选项失败:', error)
     // 失败时不影响主流程，使用列配置中的 options
@@ -1604,297 +1565,38 @@ const initTableWidth = () => {
   })
 }
 
-// 处理添加数据
-const handleAddData = async () => {
-  if (!newDataFormRef.value) return
-  
-  // 验证表单
-  try {
-    await newDataFormRef.value.validate()
-  } catch (error) {
-    return
-  }
-  
-  addingData.value = true
-  try {
-    // 准备新数据，移除空值（除了允许为空的字段）
-    const dataToAdd: Record<string, any> = {}
-    orderedColumns.value.forEach(col => {
-      const value = newDataForm[col.prop]
-      // ID字段不包含在提交数据中（会自动生成）
-      if (col.prop === 'id') {
-        return
-      }
-      // 如果值不为空，添加到提交数据中
-      if (value !== undefined && value !== null && value !== '') {
-        dataToAdd[col.prop] = value
-      }
-    })
-    
-    // 调用API添加数据
-    const result = await dataApi.addData(dataToAdd)
-    
-    ElMessage.success(`成功添加 ${result.added_count} 条数据`)
-    
-    // 如果有新字段，重新加载列配置
-    if (result.columns_updated && result.added_columns.length > 0) {
-      ElMessage.info(`检测到新字段: ${result.added_columns.join(', ')}，正在更新列配置...`)
-      await loadColumnsConfig()
-      // 重新初始化筛选表单
-      initFilterForm(columnConfig.value)
-    }
-    
-    // 关闭对话框
-    showAddDataDialog.value = false
-    
-    // 清空表单
-    Object.keys(newDataForm).forEach(key => {
-      delete newDataForm[key]
-    })
-    
-    // 刷新数据（保持当前筛选条件和分页）
-    await loadData(false)
-  } catch (error: any) {
-    const errorMsg = error?.response?.data?.detail || error?.message || '添加数据失败'
-    ElMessage.error(`添加数据失败: ${errorMsg}`)
-  } finally {
-    addingData.value = false
-  }
+// 暴露方法给父组件
+const exposedMethods = {
+  refreshData: async () => {
+    await loadData(false, true) // Silent refresh
+    await refreshFilterOptions()
+  },
+  refreshColumns: loadColumnsConfig
 }
 
-// 监听添加数据对话框打开，初始化表单
-const initAddDataForm = () => {
-  // 清空现有表单数据
-  Object.keys(newDataForm).forEach(key => {
-    delete newDataForm[key]
-  })
-  
-  // 根据列配置初始化表单
-  orderedColumns.value.forEach(col => {
-    // ID字段不显示在表单中（会自动生成）
-    if (col.prop === 'id') {
-      return
-    }
-    // 根据字段类型设置默认值
-    if (col.type === 'number') {
-      newDataForm[col.prop] = undefined
-    } else if (col.filterType === 'multi-select') {
-      newDataForm[col.prop] = []
-    } else {
-      newDataForm[col.prop] = undefined
-    }
-  })
-}
+defineExpose(exposedMethods)
 
-// 监听对话框显示状态
-watch(showAddDataDialog, (newVal) => {
-  if (newVal) {
-    initAddDataForm()
-  }
-})
-
-// 处理自动添加数据
-const handleToggleAutoAdd = async () => {
-  autoAddLoading.value = true
-  try {
-    if (autoAddRunning.value) {
-      // 停止自动添加
-      await dataApi.stopAutoAdd()
-      autoAddRunning.value = false
-      
-      // 立即清除自动刷新定时器
-      if (autoRefreshTimer) {
-        clearInterval(autoRefreshTimer)
-        autoRefreshTimer = null
-        console.log('[停止] 已清除自动刷新定时器')
-      }
-      
-      // 重置静默加载状态
-      silentLoading.value = false
-      
-      // 重新启动状态检查定时器（以便检测下次启动）
-      startStatusCheck()
-      
-      ElMessage.success('已停止自动添加数据')
-    } else {
-      // 启动自动添加（每0.5秒添加5条数据）
-      await dataApi.startAutoAdd(5, 0.5)
-      autoAddRunning.value = true
-      ElMessage.success('已启动自动添加数据（每0.5秒添加5条）')
-      
-      // 启动定时刷新（会立即执行一次刷新，然后每0.5秒刷新一次）
-      startAutoRefresh()
-    }
-  } catch (error: any) {
-    const errorMsg = error?.message || '操作失败'
-    ElMessage.error(`操作失败: ${errorMsg}`)
-  } finally {
-    autoAddLoading.value = false
-  }
-}
-
-// 自动刷新定时器
-let autoRefreshTimer: ReturnType<typeof setInterval> | null = null
-
-const startAutoRefresh = () => {
-  // 清除旧的定时器
-  if (autoRefreshTimer) {
-    clearInterval(autoRefreshTimer)
-    console.log('[自动刷新] 清除旧的定时器')
-  }
+// 注册到全局注册表的函数
+const registerToGlobalRegistry = () => {
+  // 等待一下确保 DOM 完全渲染
+  const root = document.getElementById('root')
+  const tableId = root?.dataset.tableId
   
-  console.log('[自动刷新] 启动自动刷新定时器（每0.5秒刷新一次）')
-  
-  // 立即执行一次刷新，不等待定时器
-  const performRefresh = async () => {
-    if (!autoAddRunning.value) {
-      return
-    }
-    console.log('[自动刷新] 立即刷新数据...')
-    try {
-        await loadData(false, true) // 不保持选中行，使用静默模式
-        // 刷新筛选选项
-        await refreshFilterOptions()
-        console.log('[自动刷新] 数据刷新完成')
-    } catch (error) {
-      console.error('[自动刷新] 刷新失败:', error)
-    }
-  }
-  
-  // 立即执行一次刷新
-  performRefresh()
-  
-  // 每0.5秒刷新一次数据（使用静默模式，不显示遮罩），与数据添加频率同步
-  autoRefreshTimer = setInterval(async () => {
-    // 每次刷新前先检查自动添加状态（因为可能在Python侧启动）
-    let shouldContinue = false
-    try {
-      const status = await dataApi.getAutoAddStatus()
-      const wasRunning = autoAddRunning.value
-      autoAddRunning.value = status.running
-      
-      // 如果状态从停止变为运行，记录日志
-      if (!wasRunning && status.running) {
-        console.log('[自动刷新] 检测到自动添加已启动')
-      }
-      
-      // 如果状态已停止，立即清除定时器并返回
-      if (!status.running) {
-        console.log('[自动刷新] 检测到自动添加已停止，立即清除定时器')
-        if (autoRefreshTimer) {
-          clearInterval(autoRefreshTimer)
-          autoRefreshTimer = null
-        }
-        // 重置静默加载状态
-        silentLoading.value = false
-        // 重新启动状态检查定时器（以便检测下次启动）
-        startStatusCheck()
-        return // 立即返回，不再执行后续刷新
-      }
-      
-      shouldContinue = true
-    } catch (error) {
-      console.error('[自动刷新] 检查状态失败:', error)
-      // 如果检查失败，但当前状态显示运行中，继续刷新（避免网络问题导致停止）
-      shouldContinue = autoAddRunning.value
+  if (tableId) {
+    // 注册到全局注册表
+    if (!(window as any).__nice_table_registry) {
+      (window as any).__nice_table_registry = {}
     }
     
-    // 只有在确认运行中时才刷新
-    if (shouldContinue && autoAddRunning.value) {
-      // 静默刷新，自动跳转到最后一页并选中最后一行
-      console.log('[自动刷新] 开始刷新数据... (autoAddRunning:', autoAddRunning.value, ')')
-      try {
-        await loadData(false, true) // 不保持选中行，使用静默模式
-        // 刷新筛选选项
-        await refreshFilterOptions()
-        console.log('[自动刷新] 数据刷新完成')
-      } catch (error) {
-        console.error('[自动刷新] 刷新失败:', error)
-      }
-    }
-  }, 500) // 每0.5秒刷新一次，与数据添加频率同步
-}
-
-// 检查自动添加状态
-const checkAutoAddStatus = async () => {
-  try {
-    console.log('[初始化] 检查自动添加状态...')
-    const status = await dataApi.getAutoAddStatus()
-    console.log('[初始化] 自动添加状态:', status)
-    autoAddRunning.value = status.running
-    if (status.running) {
-      console.log('[初始化] 自动添加正在运行，启动自动刷新')
-      startAutoRefresh()
-      // 不需要启动状态检查，因为自动刷新定时器会检查状态
-    } else {
-      console.log('[初始化] 自动添加未运行 - 请在NiceGUI页面点击"开始自动添加"按钮启动')
-      // 只在未运行时启动状态检查定时器
-    }
-  } catch (error) {
-    console.error('[初始化] 检查自动添加状态失败:', error)
-    // 忽略错误，不影响主流程
-  }
-}
-
-// 定期检查自动添加状态的定时器
-let statusCheckTimer: ReturnType<typeof setInterval> | null = null
-
-const startStatusCheck = () => {
-  // 清除旧的定时器
-  if (statusCheckTimer) {
-    clearInterval(statusCheckTimer)
-    statusCheckTimer = null
-  }
-  
-  // 只在自动添加未运行时才启动状态检查定时器
-  // 如果已经在运行，则不需要状态检查（因为自动刷新定时器会检查状态）
-  if (autoAddRunning.value) {
-    console.log('[状态检查] 自动添加已在运行，无需启动状态检查定时器')
-    return
-  }
-  
-  console.log('[状态检查] 启动状态检查定时器（每0.5秒检查一次，仅在未运行时检查）')
-  
-  // 每0.5秒检查一次自动添加状态（因为可能在Python侧启动），缩短检测延迟
-  statusCheckTimer = setInterval(async () => {
-    // 如果自动添加已经在运行，停止状态检查（自动刷新定时器会接管）
-    if (autoAddRunning.value) {
-      console.log('[状态检查] 自动添加已在运行，停止状态检查定时器')
-      if (statusCheckTimer) {
-        clearInterval(statusCheckTimer)
-        statusCheckTimer = null
-      }
-      return
-    }
+    const registry = (window as any).__nice_table_registry
+    registry[tableId] = exposedMethods
+    console.log('DataTable: NiceTable instance registered:', tableId, registry)
     
-    try {
-      const status = await dataApi.getAutoAddStatus()
-      const wasRunning = autoAddRunning.value
-      autoAddRunning.value = status.running
-      
-      // 如果状态从停止变为运行，启动自动刷新并停止状态检查
-      if (!wasRunning && status.running) {
-        console.log('[状态检查] 检测到自动添加已启动，立即开始自动刷新并停止状态检查')
-        // 停止状态检查定时器（自动刷新定时器会接管状态检查）
-        if (statusCheckTimer) {
-          clearInterval(statusCheckTimer)
-          statusCheckTimer = null
-        }
-        startAutoRefresh() // startAutoRefresh 内部会立即执行一次刷新
-      }
-    } catch (error) {
-      console.error('[状态检查] 检查状态失败:', error)
-      // 忽略错误，不影响主流程
-    }
-  }, 500) // 每0.5秒检查一次状态（只在未运行时），缩短检测延迟
-}
-
-const stopStatusCheck = () => {
-  if (statusCheckTimer) {
-    clearInterval(statusCheckTimer)
-    statusCheckTimer = null
-    console.log('[状态检查] 已停止状态检查定时器')
+    // 触发自定义事件
+    window.dispatchEvent(new CustomEvent('nice-table-ready', { detail: { tableId } }))
+    return true
   }
+  return false
 }
 
 // 初始化
@@ -1905,10 +1607,6 @@ onMounted(async () => {
     await loadData()
     // 初始化表格宽度
     initTableWidth()
-    // 检查自动添加状态
-    await checkAutoAddStatus()
-    // 启动定期状态检查
-    startStatusCheck()
   } catch (error) {
     // 即使列配置加载失败，也尝试加载数据（使用默认配置）
     if (columnConfig.value.length === 0) {
@@ -1919,24 +1617,32 @@ onMounted(async () => {
     await loadData()
     // 初始化表格宽度
     initTableWidth()
-    // 检查自动添加状态（内部会根据状态决定是否启动状态检查）
-    await checkAutoAddStatus()
-    // 只在未运行时启动状态检查（checkAutoAddStatus 内部已处理）
-    if (!autoAddRunning.value) {
-      startStatusCheck()
-    }
   }
-})
-
-// 组件卸载时清理定时器
-onUnmounted(() => {
-  if (autoRefreshTimer) {
-    clearInterval(autoRefreshTimer)
-    autoRefreshTimer = null
-  }
-  if (statusCheckTimer) {
-    clearInterval(statusCheckTimer)
-    statusCheckTimer = null
+  
+  // 等待多个 tick 后注册到全局注册表
+  await nextTick()
+  await nextTick()
+  await new Promise(resolve => setTimeout(resolve, 300)) // 额外等待 300ms 确保 DOM 完全渲染
+  
+  // 如果第一次尝试失败，使用轮询重试
+  if (!registerToGlobalRegistry()) {
+    let retries = 0
+    const maxRetries = 30 // 增加到 30 次，总共 6 秒
+    const interval = setInterval(() => {
+      retries++
+      if (registerToGlobalRegistry() || retries >= maxRetries) {
+        clearInterval(interval)
+        if (retries >= maxRetries) {
+          console.warn('DataTable: Failed to register to global registry after', maxRetries, 'retries')
+          // 最后一次尝试：直接检查 root 元素
+          const root = document.getElementById('root')
+          const tableId = root?.dataset.tableId
+          if (tableId && !(window as any).__nice_table_registry?.[tableId]) {
+            console.error('DataTable: Registration failed. Root element:', root, 'TableId:', tableId)
+          }
+        }
+      }
+    }, 200)
   }
 })
 </script>
@@ -1944,7 +1650,7 @@ onUnmounted(() => {
 <style scoped>
 .table-card {
   margin: 0;
-  height: 100vh;
+  height: 100%; /* Parent container control */
   width: 100%;
   max-width: 100%;
   display: flex;
@@ -2400,5 +2106,3 @@ onUnmounted(() => {
 }
 
 </style>
-
-
