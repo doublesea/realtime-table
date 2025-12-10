@@ -8,7 +8,7 @@ import pandas as pd
 from nicegui import ui
 
 from data_generator import generate_single_record, generate_batch_records
-from backend.data_table import generate_columns_config_from_dataframe
+from data_table import generate_columns_config_from_dataframe
 from nice_table import NiceTable
 
 

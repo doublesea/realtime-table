@@ -9,8 +9,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from nicegui import app, ui
 
-from backend.data_table import FilterParams
-from backend.data_table import ColumnConfig, DataTable, generate_columns_config_from_dataframe
+from data_table import FilterParams
+from data_table import ColumnConfig, DataTable, generate_columns_config_from_dataframe
 
 logger = logging.getLogger(__name__)
 

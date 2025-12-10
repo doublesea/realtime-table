@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [vue()],
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src')
+      '@': resolve(__dirname, 'front_vue')
     }
   },
   base: '/static/', // 静态资源基础路径，用于 NiceGUI 嵌入

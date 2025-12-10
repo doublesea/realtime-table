@@ -872,6 +872,12 @@ const loadData = async (keepSelectedRow = false, silent = false) => {
         if (tableRef.value) {
           tableRef.value.setCurrentRow(selectedRow)
         }
+        // 滚动到选中行，确保可见（等待 DOM 更新完成）
+        await nextTick()
+        // 使用 setTimeout 确保表格渲染完成后再滚动
+        setTimeout(() => {
+          scrollToSelectedRow()
+        }, 100)
       }
     }
   } catch (error: any) {
@@ -1894,17 +1900,35 @@ onMounted(async () => {
   gap: 4px;
 }
 
-/* 选中行样式 */
+/* 选中行样式 - 更明显的颜色（更深） */
 :deep(.selected-row) {
-  background-color: #ecf5ff !important;
+  background-color: #7ab8ff !important;
+  border-left: 3px solid #409eff !important;
+  box-shadow: 0 2px 4px rgba(64, 158, 255, 0.3) !important;
 }
 
 :deep(.selected-row:hover) {
-  background-color: #d4e8ff !important;
+  background-color: #66b1ff !important;
+  border-left-color: #66b1ff !important;
+  box-shadow: 0 2px 6px rgba(64, 158, 255, 0.4) !important;
 }
 
 :deep(.el-table__row.selected-row) {
   cursor: pointer;
+  font-weight: 500;
+}
+
+/* Element Plus 的 highlight-current-row 样式增强 */
+:deep(.el-table__row.current-row) {
+  background-color: #7ab8ff !important;
+  border-left: 3px solid #409eff !important;
+  box-shadow: 0 2px 4px rgba(64, 158, 255, 0.3) !important;
+}
+
+:deep(.el-table__row.current-row:hover) {
+  background-color: #66b1ff !important;
+  border-left-color: #66b1ff !important;
+  box-shadow: 0 2px 6px rgba(64, 158, 255, 0.4) !important;
 }
 
 /* 展开详情样式 */
