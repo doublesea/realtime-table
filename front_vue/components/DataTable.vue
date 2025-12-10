@@ -1278,9 +1278,9 @@ const handleReset = () => {
   // 重置排序为默认值（ID升序，最新的在后）
   sortInfo.prop = 'id'
   sortInfo.order = 'ascending'
-  pagination.page = 1
-  selectedRowId.value = null // 重置时清除选中状态
-  loadData(false)
+  // 保持选中行，不重置页码（让 loadData 自动计算选中行所在页）
+  // 如果选中行存在，loadData(true) 会自动计算选中行在新筛选条件下的位置并跳转到对应页
+  loadData(true) // 保持选中行
 }
 
 // 处理分页变化
