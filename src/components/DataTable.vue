@@ -813,6 +813,9 @@ const loadData = async (keepSelectedRow = false, silent = false) => {
     // 数据加载完成后
     await nextTick()
     
+    // 强制启用分页跳转输入框
+    enablePaginationJumper()
+    
     // 如果是静默刷新（自动刷新），检查是否需要自动跳转到最新数据
     if (silent) {
       // 计算刷新前后的最后一页
@@ -1594,6 +1597,47 @@ const handleShowStatistics = () => {
   loadStatistics()
 }
 
+// 强制启用分页跳转输入框（移除禁用状态）
+const enablePaginationJumper = () => {
+  nextTick(() => {
+    // 查找分页跳转输入框并移除禁用状态
+    const jumpInputs = document.querySelectorAll('.el-pagination__jump input')
+    jumpInputs.forEach((input: any) => {
+      if (input) {
+        input.removeAttribute('disabled')
+        input.disabled = false
+        // 移除父元素的禁用类
+        const inputWrapper = input.closest('.el-input')
+        if (inputWrapper) {
+          inputWrapper.classList.remove('is-disabled')
+          // 移除 wrapper 上的禁用类
+          const wrapper = inputWrapper.querySelector('.el-input__wrapper')
+          if (wrapper) {
+            wrapper.classList.remove('is-disabled')
+          }
+        }
+      }
+    })
+  })
+  
+  // 延迟再次检查，确保 Element Plus 的更新不会覆盖我们的设置
+  setTimeout(() => {
+    nextTick(() => {
+      const jumpInputs = document.querySelectorAll('.el-pagination__jump input')
+      jumpInputs.forEach((input: any) => {
+        if (input) {
+          input.removeAttribute('disabled')
+          input.disabled = false
+          const inputWrapper = input.closest('.el-input')
+          if (inputWrapper) {
+            inputWrapper.classList.remove('is-disabled')
+          }
+        }
+      })
+    })
+  }, 100)
+}
+
 // 初始化表格宽度，确保填满屏幕
 const initTableWidth = () => {
   nextTick(() => {
@@ -1693,6 +1737,9 @@ onMounted(async () => {
   await nextTick()
   await nextTick()
   await new Promise(resolve => setTimeout(resolve, 300)) // 额外等待 300ms 确保 DOM 完全渲染
+  
+  // 强制启用分页跳转输入框
+  enablePaginationJumper()
   
   // 如果第一次尝试失败，使用轮询重试
   if (!registerToGlobalRegistry()) {
@@ -2189,6 +2236,31 @@ onMounted(async () => {
   }
 }
 
+/* 减小表格行高，让每页显示更多行 */
+:deep(.el-table .el-table__body .el-table__cell) {
+  padding: 4px 0 !important;
+  line-height: 1.1 !important;
+}
+
+:deep(.el-table .el-table__header .el-table__cell) {
+  padding: 6px 0 !important;
+  line-height: 1.1 !important;
+}
+
+/* 减小表格单元格内容的内边距 */
+:deep(.el-table .cell) {
+  padding: 0 8px;
+  line-height: 1.1;
+  font-size: 13px;
+}
+
+/* 减小表头字体大小和内边距 */
+:deep(.el-table th.el-table__cell .cell) {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 8px;
+}
+
 /* Hide spin buttons for number input in pagination jumper */
 :deep(.el-pagination__jump input[type=number]::-webkit-inner-spin-button),
 :deep(.el-pagination__jump input[type=number]::-webkit-outer-spin-button) {
@@ -2199,9 +2271,78 @@ onMounted(async () => {
   -moz-appearance: textfield;
 }
 
-/* Force cursor to be pointer for pagination jumper input */
+/* 分页跳转输入框：移除禁用状态，设置正确的样式和光标 */
+:deep(.el-pagination__jump) {
+  cursor: pointer !important;
+}
+
+:deep(.el-pagination__jump *) {
+  cursor: pointer !important;
+}
+
+:deep(.el-pagination__jump .el-input) {
+  cursor: pointer !important;
+}
+
 :deep(.el-pagination__jump .el-input__inner) {
-  cursor: pointer;
+  cursor: pointer !important;
+  color: #303133 !important;
+  background-color: #fff !important;
+  opacity: 1 !important;
+}
+
+:deep(.el-pagination__jump .el-input__inner:disabled),
+:deep(.el-pagination__jump .el-input__inner[disabled]) {
+  cursor: pointer !important;
+  color: #303133 !important;
+  background-color: #fff !important;
+  -webkit-text-fill-color: #303133 !important;
+  opacity: 1 !important;
+}
+
+:deep(.el-pagination__jump .el-input__wrapper) {
+  cursor: pointer !important;
+}
+
+:deep(.el-pagination__jump input) {
+  cursor: pointer !important;
+  color: #303133 !important;
+  background-color: #fff !important;
+  opacity: 1 !important;
+}
+
+:deep(.el-pagination__jump input:disabled),
+:deep(.el-pagination__jump input[disabled]) {
+  cursor: pointer !important;
+  color: #303133 !important;
+  background-color: #fff !important;
+  -webkit-text-fill-color: #303133 !important;
+  opacity: 1 !important;
+}
+
+/* 移除禁用状态的样式 */
+:deep(.el-pagination__jump .el-input.is-disabled),
+:deep(.el-pagination__jump .el-input.is-disabled *) {
+  cursor: pointer !important;
+}
+
+:deep(.el-pagination__jump .el-input.is-disabled .el-input__inner) {
+  cursor: pointer !important;
+  color: #303133 !important;
+  background-color: #fff !important;
+  -webkit-text-fill-color: #303133 !important;
+  opacity: 1 !important;
+}
+
+/* 覆盖 Element Plus 的禁用状态样式 */
+:deep(.el-pagination__jump .el-input.is-disabled .el-input__wrapper) {
+  cursor: pointer !important;
+  background-color: #fff !important;
+  box-shadow: 0 0 0 1px #dcdfe6 inset !important;
+}
+
+:deep(.el-pagination__jump .el-input.is-disabled .el-input__wrapper:hover) {
+  box-shadow: 0 0 0 1px #409eff inset !important;
 }
 
 </style>
