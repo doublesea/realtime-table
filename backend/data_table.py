@@ -710,6 +710,7 @@ class DataTable:
             existing_columns = set(c.prop for c in self.columns_config)
             new_columns = set(new_dataframe.columns)
             added_columns = new_columns - existing_columns
+            removed_columns = existing_columns - new_columns
             
             columns_updated = False
             if added_columns:
@@ -719,8 +720,35 @@ class DataTable:
                 self.columns_config.extend(new_columns_config)
                 columns_updated = True
             
+            # 移除已删除的列的配置
+            if removed_columns:
+                self.columns_config = [c for c in self.columns_config if c.prop not in removed_columns]
+                columns_updated = True
+            
             # 更新 DataFrame 引用
             self.dataframe = new_dataframe
+            
+            # 按照 new_dataframe.columns 的顺序重新排列列配置
+            # 创建一个字典，方便快速查找列配置
+            config_dict = {c.prop: c for c in self.columns_config}
+            # 按照 new_dataframe.columns 的顺序重新构建列配置列表
+            reordered_config = []
+            for col_name in new_dataframe.columns:
+                if col_name in config_dict:
+                    reordered_config.append(config_dict[col_name])
+                else:
+                    # 如果列配置不存在（理论上不应该发生），生成一个新的
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"列 {col_name} 在列配置中不存在，自动生成配置")
+                    temp_df = new_dataframe[[col_name]]
+                    new_config = generate_columns_config_from_dataframe(temp_df)
+                    if new_config:
+                        reordered_config.append(new_config[0])
+                        columns_updated = True
+            
+            # 更新列配置列表
+            self.columns_config = reordered_config
             
             # 更新列配置中的筛选选项（对于 multi-select 和 select 类型）
             for col_config in self.columns_config:

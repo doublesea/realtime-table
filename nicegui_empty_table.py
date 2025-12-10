@@ -43,6 +43,12 @@ def main_page():
             with ui.row().classes('items-center gap-4'):
                 status_label = ui.label('状态：未运行').classes('text-white')
                 toggle_btn = ui.button('开始自动添加', icon='play_arrow').props('flat color=white')
+                
+                # 列顺序测试按钮和显示
+                with ui.row().classes('items-center gap-2'):
+                    test_column_order_btn = ui.button('测试列顺序', icon='swap_vert').props('flat color=white size=sm')
+                    show_order_btn = ui.button('显示列顺序', icon='list').props('flat color=white size=sm')
+                column_order_info = ui.label('').classes('text-white text-xs max-w-md')
 
                 auto_add_running = {'flag': False}
                 timer_handle = {'instance': None}
@@ -145,6 +151,112 @@ def main_page():
                         ui.notify('自动添加已启动', type='positive')
 
                 toggle_btn.on('click', handle_toggle)
+
+                async def test_column_order():
+                    """测试列顺序：随机重排列顺序并验证是否正确"""
+                    if data_state['df_source'].empty:
+                        ui.notify('请先添加一些数据', type='warning')
+                        return
+                    
+                    import random
+                    
+                    # 获取当前列顺序
+                    current_columns = list(data_state['df_source'].columns)
+                    original_order = current_columns.copy()
+                    
+                    # 随机重排列顺序（但保持 id 在第一位）
+                    if 'id' in current_columns:
+                        other_columns = [c for c in current_columns if c != 'id']
+                        random.shuffle(other_columns)
+                        new_order = ['id'] + other_columns
+                    else:
+                        random.shuffle(current_columns)
+                        new_order = current_columns
+                    
+                    # 按照新顺序重新排列 DataFrame
+                    def reorder_dataframe():
+                        return data_state['df_source'][new_order].copy()
+                    
+                    # 更新 DataFrame（使用新顺序）
+                    data_state['df_source'] = await asyncio.to_thread(reorder_dataframe)
+                    
+                    # 更新表格
+                    result = await asyncio.to_thread(table.logic.update_dataframe, data_state['df_source'])
+                    
+                    # 获取更新后的列配置顺序
+                    columns_config_result = table.logic.get_columns_config()
+                    config_order = [col['prop'] for col in columns_config_result['columns']]
+                    
+                    # 验证列顺序
+                    df_order = list(data_state['df_source'].columns)
+                    is_correct = config_order == df_order
+                    
+                    # 显示结果
+                    if is_correct:
+                        column_order_info.text = f'✓ 列顺序正确: {", ".join(config_order[:5])}{"..." if len(config_order) > 5 else ""}'
+                        column_order_info.classes('text-white text-xs')
+                        ui.notify('列顺序测试通过！列顺序与 DataFrame 一致', type='positive')
+                    else:
+                        column_order_info.text = f'✗ 列顺序错误！期望: {df_order[:3]}..., 实际: {config_order[:3]}...'
+                        column_order_info.classes('text-red-300 text-xs')
+                        ui.notify(f'列顺序测试失败！期望: {df_order}, 实际: {config_order}', type='negative')
+                    
+                    # 刷新表格
+                    if result.get('columns_updated'):
+                        table.refresh_columns()
+                    table.refresh_data()
+                    
+                    # 打印详细信息到控制台
+                    print(f"\n{'='*60}")
+                    print("列顺序测试结果:")
+                    print(f"  原始顺序: {original_order}")
+                    print(f"  新顺序:   {new_order}")
+                    print(f"  DataFrame列顺序: {df_order}")
+                    print(f"  配置列顺序:      {config_order}")
+                    print(f"  是否一致: {'✓ 是' if is_correct else '✗ 否'}")
+                    print(f"{'='*60}\n")
+                
+                test_column_order_btn.on('click', test_column_order)
+                
+                async def show_column_order():
+                    """显示当前列顺序"""
+                    if data_state['df_source'].empty:
+                        ui.notify('表格为空，无列顺序信息', type='info')
+                        return
+                    
+                    # 获取 DataFrame 的列顺序
+                    df_order = list(data_state['df_source'].columns)
+                    
+                    # 获取配置的列顺序
+                    columns_config_result = table.logic.get_columns_config()
+                    config_order = [col['prop'] for col in columns_config_result['columns']]
+                    
+                    # 检查是否一致
+                    is_consistent = df_order == config_order
+                    
+                    # 显示信息
+                    order_text = f"列顺序: {', '.join(config_order[:8])}"
+                    if len(config_order) > 8:
+                        order_text += f" ... (共{len(config_order)}列)"
+                    
+                    if is_consistent:
+                        column_order_info.text = f'✓ {order_text}'
+                        column_order_info.classes('text-white text-xs max-w-md')
+                        ui.notify(f'列顺序一致\nDataFrame: {df_order[:5]}...\n配置: {config_order[:5]}...', type='info', timeout=3000)
+                    else:
+                        column_order_info.text = f'✗ 列顺序不一致！\nDataFrame: {df_order[:5]}...\n配置: {config_order[:5]}...'
+                        column_order_info.classes('text-red-300 text-xs max-w-md')
+                        ui.notify(f'列顺序不一致！\nDataFrame: {df_order}\n配置: {config_order}', type='warning', timeout=5000)
+                    
+                    # 打印详细信息
+                    print(f"\n{'='*60}")
+                    print("当前列顺序:")
+                    print(f"  DataFrame列顺序: {df_order}")
+                    print(f"  配置列顺序:      {config_order}")
+                    print(f"  是否一致: {'✓ 是' if is_consistent else '✗ 否'}")
+                    print(f"{'='*60}\n")
+                
+                show_order_btn.on('click', show_column_order)
 
         with ui.card().classes('w-full flex-grow p-0 overflow-hidden'):
             table = NiceTable(dataframe=data_state['df_source'], columns_config=columns_config, page_size=100)
