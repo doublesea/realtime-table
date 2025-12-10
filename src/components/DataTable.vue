@@ -17,8 +17,11 @@
           @current-change="handlePageChange"
         />
       </div>
-      <!-- Right: Column Settings, Reset -->
+      <!-- Right: Statistics, Column Settings, Reset -->
       <div style="display: flex; gap: 12px; align-items: center;">
+        <el-button :icon="DataAnalysis" size="small" @click="handleShowStatistics">
+          统计
+        </el-button>
         <el-button :icon="Setting" size="small" @click="showColumnSettings = true">
           列设置
         </el-button>
@@ -379,13 +382,45 @@
         <el-button type="primary" @click="handleSaveColumnOrder">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 统计信息弹窗 -->
+    <el-dialog
+      v-model="showStatisticsDialog"
+      title="数据统计"
+      width="600px"
+      :close-on-click-modal="true"
+    >
+      <div class="statistics-content" v-loading="statisticsLoading">
+        <el-table 
+          v-if="statisticsData.rows.length > 0" 
+          :data="statisticsData.rows" 
+          border 
+          stripe 
+          size="small"
+          style="width: 100%"
+        >
+          <el-table-column
+            v-for="col in statisticsData.columns"
+            :key="col"
+            :prop="col"
+            :label="col"
+            :min-width="col === '描述' ? 200 : 120"
+          />
+        </el-table>
+        <el-empty v-else-if="!statisticsLoading" description="暂无统计数据" />
+      </div>
+      <template #footer>
+        <el-button @click="showStatisticsDialog = false">关闭</el-button>
+        <el-button type="primary" @click="loadStatistics" :loading="statisticsLoading">刷新</el-button>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, onUnmounted, nextTick, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Search, Refresh, Delete, Setting, ArrowDown, ArrowUp, Sort, Filter, Rank, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
+import { Search, Refresh, Delete, Setting, ArrowDown, ArrowUp, Sort, Filter, Rank, ArrowLeft, ArrowRight, DataAnalysis } from '@element-plus/icons-vue'
 import { TableData, FilterParams, NumberFilter, RowDetail, ColumnConfig } from '../types'
 import type { ElTable } from 'element-plus'
 import type { FormInstance } from 'element-plus'
@@ -459,6 +494,14 @@ const createApi = (baseUrl: string) => {
         return data.data
       }
       return data
+    },
+    getStatistics: async () => {
+      const response = await client.get('/statistics')
+      const data = response.data
+      if (data.success && data.data) {
+        return data.data
+      }
+      return data
     }
   }
 }
@@ -492,6 +535,11 @@ const columnWidths = reactive<Record<string, number>>({})
 
 // 列设置弹窗显示状态
 const showColumnSettings = ref(false)
+
+// 统计信息弹窗状态
+const showStatisticsDialog = ref(false)
+const statisticsLoading = ref(false)
+const statisticsData = ref<{ columns: string[]; rows: Record<string, string>[] }>({ columns: [], rows: [] })
 
 // 添加数据相关状态 (Removed add data dialog logic as per refactoring requirement to minimal component)
 const showAddDataDialog = ref(false)
@@ -1526,6 +1574,26 @@ const getFilterPopoverWidth = (filterType: string): number => {
   }
 }
 
+// 加载统计信息
+const loadStatistics = async () => {
+  statisticsLoading.value = true
+  try {
+    const data = await dataApi.getStatistics()
+    statisticsData.value = data
+  } catch (error: any) {
+    const errorMsg = error?.message || '加载统计信息失败'
+    ElMessage.error(errorMsg)
+  } finally {
+    statisticsLoading.value = false
+  }
+}
+
+// 打开统计弹窗
+const handleShowStatistics = () => {
+  showStatisticsDialog.value = true
+  loadStatistics()
+}
+
 // 初始化表格宽度，确保填满屏幕
 const initTableWidth = () => {
   nextTick(() => {
@@ -2051,6 +2119,20 @@ onMounted(async () => {
 
 .add-data-content .el-form-item {
   margin-bottom: 16px;
+}
+
+/* 统计信息弹窗样式 */
+.statistics-content {
+  min-height: 150px;
+}
+
+.statistics-content :deep(.el-table) {
+  border-radius: 4px;
+}
+
+.statistics-content :deep(.el-table th) {
+  background-color: #f5f7fa;
+  font-weight: 600;
 }
 
 /* 静默加载进度条 */

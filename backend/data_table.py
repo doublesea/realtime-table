@@ -24,13 +24,37 @@ class ColumnConfig(BaseModel):
     options: Optional[List[str]] = None  # 下拉选项（用于select类型）
 
 
-# 使用TYPE_CHECKING避免循环导入
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    try:
-        from .api import FilterParams, FilterGroup
-    except ImportError:
-        from backend.api import FilterParams, FilterGroup
+# 数据模型（从 api.py 移过来，避免循环导入）
+class NumberFilter(BaseModel):
+    """数字筛选条件"""
+    operator: Optional[str] = None  # '=', '>', '<', '>=', '<=' 
+    value: Optional[Union[int, float, str]] = None  # 支持整数、浮点数和字符串（支持16进制如0x123）
+
+
+class FilterGroup(BaseModel):
+    """筛选条件组（多个条件组合）"""
+    filters: List[NumberFilter]
+    logic: Optional[str] = 'AND'  # 'AND' 或 'OR'
+
+
+class FilterParams(BaseModel):
+    """动态筛选参数，支持任意字段名"""
+    model_config = {"extra": "allow"}  # 允许额外字段
+    
+    @classmethod
+    def parse_dynamic_filter(cls, field_name: str, value: Any) -> Any:
+        """动态解析筛选值，根据值的类型判断是 NumberFilter、FilterGroup 还是普通值"""
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            # 如果有 filters 键，说明是 FilterGroup
+            if 'filters' in value:
+                return FilterGroup(**value)
+            # 如果有 operator 或 value，说明是 NumberFilter
+            elif 'operator' in value or 'value' in value:
+                return NumberFilter(**value)
+        # 其他情况直接返回
+        return value
 
 
 class DataTable:
@@ -109,14 +133,8 @@ class DataTable:
                     return None
         return None
     
-    def _build_pandas_filter(self, filters: Optional['FilterParams'] = None, df: Optional[pd.DataFrame] = None) -> pd.Series:
+    def _build_pandas_filter(self, filters: Optional[FilterParams] = None, df: Optional[pd.DataFrame] = None) -> pd.Series:
         """将筛选条件转换为pandas布尔索引（动态处理任意字段）"""
-        # 延迟导入避免循环依赖
-        try:
-            from .api import FilterParams, FilterGroup, NumberFilter  # type: ignore
-        except ImportError:
-            from backend.api import FilterParams, FilterGroup, NumberFilter  # type: ignore
-        
         # 使用传入的df或self.dataframe
         target_df = df if df is not None else self.dataframe
         

@@ -49,3 +49,5 @@ if __name__ == "__main__":
     logger.info("调试脚本已启动")
     logger.info("请在代码中调用 check_table_state(table_instance) 来检查表格状态")
 
+
+

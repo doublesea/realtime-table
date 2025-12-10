@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from nicegui import app, ui
 
-from backend.api import FilterParams
+from backend.data_table import FilterParams
 from backend.data_table import ColumnConfig, DataTable, generate_columns_config_from_dataframe
 
 logger = logging.getLogger(__name__)
@@ -271,7 +271,7 @@ class NiceTable(ui.element):
                 const originalFetch = window.fetch;
                 window.fetch = function(url, options) {{
                     // 只拦截指向当前 API 的请求
-                    if (typeof url === 'string' && (url.includes('/list') || url.includes('/columns') || url.includes('/filters') || url.includes('/row-') || url.includes('/add'))) {{
+                    if (typeof url === 'string' && (url.includes('/list') || url.includes('/columns') || url.includes('/filters') || url.includes('/row-') || url.includes('/add') || url.includes('/statistics'))) {{
                         options = options || {{}};
                         options.headers = options.headers || {{}};
                         // 尝试查找当前页面上的 table-id
@@ -467,6 +467,38 @@ class NiceTable(ui.element):
                 raise HTTPException(status_code=400, detail='缺少 data')
             result = inst.add_data(data, refresh=True)
             return {'success': True, 'data': result}
+
+        @router.get('/statistics')
+        async def statistics(request: Request):
+            """获取数据统计信息（行列可扩展格式）"""
+            inst = get_target_instance(request)
+            
+            # 获取基础统计信息
+            total_rows = len(inst.logic.dataframe)
+            total_columns = len(inst.logic.columns_config)
+            
+            # 获取列名列表
+            column_names = [col.label for col in inst.logic.columns_config]
+            
+            # 获取可筛选列数量
+            filterable_columns = sum(1 for col in inst.logic.columns_config if col.filterable)
+            
+            # 获取可排序列数量
+            sortable_columns = sum(1 for col in inst.logic.columns_config if col.sortable)
+            
+            # 构建统计数据（行列可扩展格式）
+            statistics_data = {
+                "columns": ["统计项", "值", "描述"],
+                "rows": [
+                    {"统计项": "总行数", "值": str(total_rows), "描述": "数据表中的总记录数"},
+                    {"统计项": "总列数", "值": str(total_columns), "描述": "数据表中的总列数"},
+                    {"统计项": "可筛选列数", "值": str(filterable_columns), "描述": "支持筛选功能的列数"},
+                    {"统计项": "可排序列数", "值": str(sortable_columns), "描述": "支持排序功能的列数"},
+                    {"统计项": "列名列表", "值": ", ".join(column_names[:5]) + ("..." if len(column_names) > 5 else ""), "描述": "所有列的名称"},
+                ]
+            }
+            
+            return {'success': True, 'data': statistics_data}
 
         app.include_router(router)
         cls._router_registered = True

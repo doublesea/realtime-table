@@ -228,4 +228,24 @@ export const dataApi = {
       }
     }
   },
+
+  // 获取统计信息
+  getStatistics: async (): Promise<{ columns: string[]; rows: Record<string, string>[] }> => {
+    try {
+      const response = await api.get<ApiResponse<{ columns: string[]; rows: Record<string, string>[] }>>('/data/statistics')
+      if (response.data.success && response.data.data) {
+        return response.data.data
+      } else {
+        throw new Error('API返回数据格式错误')
+      }
+    } catch (error: any) {
+      if (error.response) {
+        throw new Error(error.response.data?.detail || error.response.data?.message || '服务器错误')
+      } else if (error.request) {
+        throw new Error('无法连接到服务器，请确保后端服务已启动')
+      } else {
+        throw error
+      }
+    }
+  },
 }

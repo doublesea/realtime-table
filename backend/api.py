@@ -322,3 +322,65 @@ async def add_data(request: dict):
         logger.error(f"添加数据失败: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/api/data/statistics")
+async def get_statistics():
+    """获取数据统计信息
+    
+    返回格式为行列可扩展的表格数据：
+    {
+        "success": true,
+        "data": {
+            "columns": ["统计项", "值", "描述"],
+            "rows": [
+                {"统计项": "总行数", "值": "1000", "描述": "数据表中的总记录数"},
+                ...
+            ]
+        }
+    }
+    """
+    try:
+        # 如果数据未初始化，等待一小段时间后重试
+        if data_table is None or not _data_initialized:
+            max_wait = 60
+            for i in range(max_wait):
+                await asyncio.sleep(0.5)
+                if data_table is not None and _data_initialized:
+                    break
+            if data_table is None or not _data_initialized:
+                raise HTTPException(status_code=503, detail="数据正在初始化中，请稍后重试")
+        
+        # 获取统计信息
+        total_rows = len(data_table.data)
+        total_columns = len(data_table.columns_config)
+        
+        # 获取列名列表
+        column_names = [col.label for col in data_table.columns_config]
+        
+        # 获取可筛选列数量
+        filterable_columns = sum(1 for col in data_table.columns_config if col.filterable)
+        
+        # 获取可排序列数量
+        sortable_columns = sum(1 for col in data_table.columns_config if col.sortable)
+        
+        # 构建统计数据（行列可扩展格式）
+        statistics_data = {
+            "columns": ["统计项", "值", "描述"],
+            "rows": [
+                {"统计项": "总行数", "值": str(total_rows), "描述": "数据表中的总记录数"},
+                {"统计项": "总列数", "值": str(total_columns), "描述": "数据表中的总列数"},
+                {"统计项": "可筛选列数", "值": str(filterable_columns), "描述": "支持筛选功能的列数"},
+                {"统计项": "可排序列数", "值": str(sortable_columns), "描述": "支持排序功能的列数"},
+                {"统计项": "列名列表", "值": ", ".join(column_names[:5]) + ("..." if len(column_names) > 5 else ""), "描述": "所有列的名称"},
+            ]
+        }
+        
+        return {
+            "success": True,
+            "data": statistics_data
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取统计信息失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
