@@ -259,7 +259,7 @@ def main_page():
                 show_order_btn.on('click', show_column_order)
 
         with ui.card().classes('w-full flex-grow p-0 overflow-hidden'):
-            table = NiceTable(dataframe=data_state['df_source'], columns_config=columns_config, page_size=100)
+            table = NiceTable(dataframe=data_state['df_source'], columns_config=columns_config, page_size=100, use_vxe=True)
 
 
 if __name__ in {"__main__", "__mp_main__"}:

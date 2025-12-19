@@ -16,7 +16,9 @@
     "element-plus": "^2.4.4",
     "pinia": "^2.1.7",
     "vue": "^3.3.8",
-    "vue-router": "^4.2.5"
+    "vue-router": "^4.2.5",
+    "vxe-table": "^4.17.31",
+    "xe-utils": "^3.8.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^4.5.0",

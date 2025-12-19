@@ -1,14 +1,33 @@
 <template>
   <div class="app">
-    <DataTable ref="dataTableRef" api-url="" />
+    <div class="version-switcher">
+      <el-radio-group v-model="currentVersion" size="small">
+        <el-radio-button label="element">Element Plus</el-radio-button>
+        <el-radio-button label="vxe">VXETable</el-radio-button>
+      </el-radio-group>
+    </div>
+    <DataTable v-if="currentVersion === 'element'" ref="dataTableRef" api-url="" />
+    <VxeDataTable v-if="currentVersion === 'vxe'" ref="dataTableRef" api-url="" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick, watch } from 'vue'
 import DataTable from './components/DataTable.vue'
+import VxeDataTable from './components/VxeDataTable.vue'
 
+const currentVersion = ref('element')
 const dataTableRef = ref()
+
+// 获取默认版本从 DOM
+const getDefaultVersion = (): string => {
+  const root = document.getElementById('root')
+  return root?.dataset.defaultVersion || 'element'
+}
+
+onMounted(() => {
+  currentVersion.value = getDefaultVersion()
+})
 
 // 获取 tableId 从 DOM
 const getTableId = (): string | null => {
@@ -27,7 +46,7 @@ const registerInstance = () => {
       refreshColumns: () => dataTableRef.value?.refreshColumns()
     }
     ;(window as any).__nice_table_registry = registry
-    console.log('NiceTable instance registered:', tableId, registry)
+    console.log('NiceTable instance registered:', tableId, registry, 'Version:', currentVersion.value)
     
     // 触发自定义事件，通知 Python 端实例已就绪
     window.dispatchEvent(new CustomEvent('nice-table-ready', { detail: { tableId } }))
@@ -35,6 +54,12 @@ const registerInstance = () => {
   }
   return false
 }
+
+// 监听版本切换，重新注册实例
+watch(currentVersion, async () => {
+  await nextTick()
+  registerInstance()
+})
 
 onMounted(async () => {
   // 等待多个 tick，确保 DOM 完全渲染
@@ -68,6 +93,16 @@ defineExpose({
   width: 100%;
   height: 100vh;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.version-switcher {
+  padding: 8px 16px;
+  background-color: #f5f7fa;
+  border-bottom: 1px solid #e4e7ed;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>
 

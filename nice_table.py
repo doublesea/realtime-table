@@ -69,6 +69,7 @@ class NiceTable(ui.element):
         dataframe: pd.DataFrame,
         columns_config: Optional[List[ColumnConfig]] = None,
         page_size: int = 100,
+        use_vxe: bool = False,
     ):
         super().__init__('div')
         if dataframe is None:
@@ -85,6 +86,7 @@ class NiceTable(ui.element):
 
         self.logic = DataTable(base_df, columns_config)
         self.page_size = page_size
+        self.use_vxe = use_vxe
         self.uid = uuid.uuid4().hex
         self.container_id = f'nice-table-{self.uid}'
 
@@ -301,11 +303,12 @@ class NiceTable(ui.element):
                     root.style.width = '100%';
                     root.style.height = '100%';
                     
-                    // 注入实例配置，供 React/Vue 应用读取
-                    // 注意：由于是同一个 JS 包，我们不能用全局变量覆盖，而是挂载到 DOM 上
-                    root.dataset.tableId = '{self.uid}';
-                    
-                    container.appendChild(root);
+                // 注入实例配置，供 React/Vue 应用读取
+                // 注意：由于是同一个 JS 包，我们不能用全局变量覆盖，而是挂载到 DOM 上
+                root.dataset.tableId = '{self.uid}';
+                root.dataset.defaultVersion = '{ "vxe" if self.use_vxe else "element" }';
+                
+                container.appendChild(root);
                 }} else {{
                     // 如果 root 已存在，确保 tableId 已设置
                     root.dataset.tableId = '{self.uid}';
