@@ -19,7 +19,6 @@
       </div>
       <!-- Right: Statistics, VXE Native Custom, Reset -->
       <div style="display: flex; gap: 12px; align-items: center;">
-        <span style="font-size: 12px; color: #909399; margin-right: 8px;">(VXETable Virtual Scroll)</span>
         <el-button :icon="DataAnalysis" size="small" @click="handleShowStatistics">
           统计
         </el-button>
@@ -904,7 +903,14 @@ const handleOpenColumnSettings = () => {
 const getDetailColumns = (detailData: RowDetail) => {
   if (!detailData || detailData.length === 0) return []
   const allKeys = new Set<string>()
-  detailData.forEach(item => Object.keys(item).forEach(key => allKeys.add(key)))
+  detailData.forEach(item => {
+    Object.keys(item).forEach(key => {
+      // 过滤掉 VXETable 内部使用的 key
+      if (!key.startsWith('_X_')) {
+        allKeys.add(key)
+      }
+    })
+  })
   return Array.from(allKeys).map(key => ({ prop: key, label: key, minWidth: 150, class: 'detail-value' }))
 }
 
@@ -921,7 +927,8 @@ const exposedMethods = {
 
 defineExpose(exposedMethods)
 
-// 注册到全局注册表的函数
+// 注册到全局注册表的函数 (Removed as App.vue handles this)
+/*
 const registerToGlobalRegistry = () => {
   const root = document.getElementById('root')
   const tableId = root?.dataset.tableId
@@ -940,6 +947,7 @@ const registerToGlobalRegistry = () => {
   }
   return false
 }
+*/
 
 onMounted(async () => {
   await loadColumnsConfig()
@@ -948,8 +956,9 @@ onMounted(async () => {
   // 等待一下确保 DOM 完全渲染后注册
   await nextTick()
   await nextTick()
-  await new Promise(resolve => setTimeout(resolve, 300))
+  // await new Promise(resolve => setTimeout(resolve, 300))
   
+  /*
   if (!registerToGlobalRegistry()) {
     let retries = 0
     const maxRetries = 30
@@ -960,6 +969,7 @@ onMounted(async () => {
       }
     }, 200)
   }
+  */
 })
 </script>
 

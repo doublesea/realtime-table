@@ -181,6 +181,27 @@ class NiceTable(ui.element):
             """
         )
 
+    def switch_version(self, version: str):
+        """切换前端表格版本 ('vxe' 或 'element')"""
+        if version not in ['vxe', 'element']:
+            raise ValueError("version 必须是 'vxe' 或 'element'")
+        
+        self.use_vxe = (version == 'vxe')
+        js_code = f"""
+            const inst = window.__nice_table_registry && window.__nice_table_registry['{self.uid}'];
+            if (inst && inst.switchVersion) {{
+                inst.switchVersion('{version}');
+            }}
+        """
+        try:
+            ui.run_javascript(js_code)
+        except RuntimeError:
+            for client in NiceTable._connected_clients.copy():
+                try:
+                    client.run_javascript(js_code)
+                except Exception:
+                    NiceTable._connected_clients.discard(client)
+
     def replace_dataframe(self, dataframe: pd.DataFrame, columns_config: Optional[List[ColumnConfig]] = None):
         """重新加载数据源"""
         if columns_config is None:

@@ -42,6 +42,16 @@ def main_page():
             
             with ui.row().classes('items-center gap-4'):
                 status_label = ui.label('状态：未运行').classes('text-white')
+                
+                # 版本切换控件
+                with ui.row().classes('items-center bg-white/20 rounded px-2 gap-0'):
+                    ui.label('引擎：').classes('text-white text-xs mr-1')
+                    version_select = ui.select(
+                        {'vxe': 'VXETable', 'element': 'Element Plus'},
+                        value='vxe',
+                        on_change=lambda e: table.switch_version(e.value)
+                    ).props('dense flat dark color=white').classes('w-32')
+
                 toggle_btn = ui.button('开始自动添加', icon='play_arrow').props('flat color=white')
                 
                 # 列顺序测试按钮和显示

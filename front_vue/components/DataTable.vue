@@ -1064,7 +1064,10 @@ const getDetailColumns = (detailData: RowDetail) => {
   const allKeys = new Set<string>()
   detailData.forEach(item => {
     Object.keys(item).forEach(key => {
-      allKeys.add(key)
+      // 过滤掉内部使用的 key
+      if (!key.startsWith('_X_')) {
+        allKeys.add(key)
+      }
     })
   })
   
@@ -1696,7 +1699,8 @@ const exposedMethods = {
 
 defineExpose(exposedMethods)
 
-// 注册到全局注册表的函数
+// 注册到全局注册表的函数 (Removed as App.vue handles this)
+/*
 const registerToGlobalRegistry = () => {
   // 等待一下确保 DOM 完全渲染
   const root = document.getElementById('root')
@@ -1718,6 +1722,7 @@ const registerToGlobalRegistry = () => {
   }
   return false
 }
+*/
 
 // 初始化
 onMounted(async () => {
@@ -1742,11 +1747,12 @@ onMounted(async () => {
   // 等待多个 tick 后注册到全局注册表
   await nextTick()
   await nextTick()
-  await new Promise(resolve => setTimeout(resolve, 300)) // 额外等待 300ms 确保 DOM 完全渲染
+  // await new Promise(resolve => setTimeout(resolve, 300)) // 额外等待 300ms 确保 DOM 完全渲染
   
   // 强制启用分页跳转输入框
   enablePaginationJumper()
   
+  /*
   // 如果第一次尝试失败，使用轮询重试
   if (!registerToGlobalRegistry()) {
     let retries = 0
@@ -1757,7 +1763,7 @@ onMounted(async () => {
         clearInterval(interval)
         if (retries >= maxRetries) {
           console.warn('DataTable: Failed to register to global registry after', maxRetries, 'retries')
-          // 最后一次尝试：直接检查 root 元素
+          // 最后一次尝试：直接检查 root元素
           const root = document.getElementById('root')
           const tableId = root?.dataset.tableId
           if (tableId && !(window as any).__nice_table_registry?.[tableId]) {
@@ -1767,6 +1773,7 @@ onMounted(async () => {
       }
     }, 200)
   }
+  */
 })
 </script>
 

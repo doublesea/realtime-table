@@ -1,11 +1,5 @@
 <template>
   <div class="app">
-    <div class="version-switcher">
-      <el-radio-group v-model="currentVersion" size="small">
-        <el-radio-button label="element">Element Plus</el-radio-button>
-        <el-radio-button label="vxe">VXETable</el-radio-button>
-      </el-radio-group>
-    </div>
     <DataTable v-if="currentVersion === 'element'" ref="dataTableRef" api-url="" />
     <VxeDataTable v-if="currentVersion === 'vxe'" ref="dataTableRef" api-url="" />
   </div>
@@ -43,7 +37,8 @@ const registerInstance = () => {
     const registry = (window as any).__nice_table_registry || {}
     registry[tableId] = {
       refreshData: () => dataTableRef.value?.refreshData(),
-      refreshColumns: () => dataTableRef.value?.refreshColumns()
+      refreshColumns: () => dataTableRef.value?.refreshColumns(),
+      switchVersion: (version: string) => { currentVersion.value = version }
     }
     ;(window as any).__nice_table_registry = registry
     console.log('NiceTable instance registered:', tableId, registry, 'Version:', currentVersion.value)
@@ -84,7 +79,8 @@ onMounted(async () => {
 
 defineExpose({
   refreshData: () => dataTableRef.value?.refreshData(),
-  refreshColumns: () => dataTableRef.value?.refreshColumns()
+  refreshColumns: () => dataTableRef.value?.refreshColumns(),
+  switchVersion: (version: string) => { currentVersion.value = version }
 })
 </script>
 
@@ -95,14 +91,6 @@ defineExpose({
   overflow: hidden;
   display: flex;
   flex-direction: column;
-}
-
-.version-switcher {
-  padding: 8px 16px;
-  background-color: #f5f7fa;
-  border-bottom: 1px solid #e4e7ed;
-  display: flex;
-  justify-content: flex-end;
 }
 </style>
 
