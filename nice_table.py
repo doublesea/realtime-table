@@ -68,7 +68,7 @@ class NiceTable(ui.element):
         self,
         dataframe: pd.DataFrame,
         columns_config: Optional[List[ColumnConfig]] = None,
-        page_size: int = 100,
+        page_size: int = 200,
         use_vxe: bool = False,
     ):
         super().__init__('div')
@@ -417,7 +417,20 @@ class NiceTable(ui.element):
                 raise HTTPException(status_code=400, detail='缺少 rowId')
             filters = payload.get('filters')
             filter_params = FilterParams(**filters) if filters else None
-            return {'success': True, 'data': inst.logic.get_row_position(row_id, filter_params)}
+            
+            # 支持排序参数，以准确定位排序后的行位置
+            sort_by = payload.get('sortBy')
+            sort_order = payload.get('sortOrder')
+            
+            return {
+                'success': True, 
+                'data': inst.logic.get_row_position(
+                    row_id, 
+                    filter_params,
+                    sort_by=sort_by,
+                    sort_order=sort_order
+                )
+            }
 
         @router.post('/row-detail')
         async def row_detail(request: Request, payload: Dict[str, Any]):

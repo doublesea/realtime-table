@@ -6,9 +6,9 @@
       <div style="display: flex; gap: 12px; align-items: center;">
         <el-pagination
           v-model:current-page="pagination.page"
-          v-model:page-size="pagination.pageSize"
-          :page-sizes="[50, 100, 200, 500]"
-          :total="pagination.total"
+        v-model:page-size="pagination.pageSize"
+        :page-sizes="[100, 200, 500, 1000, 2000]"
+        :total="pagination.total"
           layout="total, sizes, prev, pager, next, jumper"
           background
           :prev-icon="ArrowLeft"
@@ -41,13 +41,14 @@
         :loading="loading && !silentLoading"
         stripe
         border
+        size="mini"
         height="100%"
         auto-resize
         show-overflow="ellipsis"
         show-header-overflow="ellipsis"
         highlight-current-row
         :row-config="{ isHover: true, keyField: 'id' }"
-        :column-config="{ resizable: true }"
+        :column-config="{ resizable: true, fit: true }"
         :custom-config="{ storage: true, immediate: true }"
         :toolbar-config="{ custom: true }"
         :scroll-y="{ enabled: true, gt: 0 }"
@@ -312,9 +313,9 @@
             </template>
             <template #default="{ row }">
               <template v-if="col.filterType === 'multi-select'">
-                <el-tag size="small">
+                <span class="list-column-tag">
                   {{ row[col.prop] ?? '-' }}
-                </el-tag>
+                </span>
               </template>
               <template v-else-if="col.type === 'bytes'">
                 <span class="bytes-display" :title="row[col.prop]">
@@ -425,8 +426,8 @@ const createApi = (baseUrl: string) => {
       }
       return data
     },
-    getRowPosition: async (row_id: any, filters?: any) => {
-      const response = await client.post('/row-position', { row_id, filters })
+    getRowPosition: async (row_id: any, filters?: any, sortBy?: string, sortOrder?: string) => {
+      const response = await client.post('/row-position', { row_id, filters, sortBy, sortOrder })
       const data = response.data
       if (data.success && data.data) {
         return data.data
@@ -519,7 +520,7 @@ const filterForm = reactive<Record<string, any>>({})
 
 const pagination = reactive({
   page: 1,
-  pageSize: 100,
+  pageSize: 200,
   total: 0
 })
 
@@ -594,7 +595,7 @@ const loadData = async (keepSelectedRow = false, silent = false) => {
     let shouldKeepSelected = true
     if (keepSelectedRow && selectedRowId.value !== null) {
       try {
-        const positionResponse = await dataApi.getRowPosition(selectedRowId.value, requestFilters)
+        const positionResponse = await dataApi.getRowPosition(selectedRowId.value, requestFilters, sortBy, sortOrder)
         if (positionResponse.found) {
           targetPage = Math.floor(positionResponse.position / pagination.pageSize) + 1
         } else {
@@ -719,8 +720,8 @@ const handleVxeSortChange: VxeTableEvents.SortChange<TableData> = ({ property, o
     sortInfo.prop = 'id'
     sortInfo.order = 'ascending'
   }
-  pagination.page = 1
-  loadData(false)
+  // Try to keep selected row visible after sorting
+  loadData(selectedRowId.value !== null)
 }
 
 const initFilterForm = (columns: ColumnConfig[]) => {
@@ -842,7 +843,7 @@ const handleSizeChange = (size: number) => {
   loadData(selectedRowId.value !== null)
 }
 
-const getColumnWidth = (col: ColumnConfig) => columnWidths[col.prop] || col.width || col.minWidth || 120
+const getColumnWidth = (col: ColumnConfig) => columnWidths[col.prop] || col.width || null
 
 const hasActiveFilter = (prop: string) => {
   const col = columnConfig.value.find(c => c.prop === prop)
@@ -860,10 +861,19 @@ const hasActiveFilter = (prop: string) => {
 
 const getFilterOptions = (prop: string) => filterOptions[prop] || columnConfig.value.find(c => c.prop === prop)?.options || []
 
-const refreshFilterOptions = async () => {
+let lastFilterRefreshTime = 0
+const FILTER_REFRESH_THROTTLE = 2000 // 2 seconds
+
+const refreshFilterOptions = async (force = false) => {
+  const now = Date.now()
+  if (!force && now - lastFilterRefreshTime < FILTER_REFRESH_THROTTLE) {
+    return
+  }
+  
   try {
     const options = await dataApi.getFilterOptions()
     Object.keys(options).forEach(prop => { filterOptions[prop] = options[prop] })
+    lastFilterRefreshTime = now
   } catch (error) {}
 }
 
@@ -900,8 +910,11 @@ const getDetailColumns = (detailData: RowDetail) => {
 
 const exposedMethods = {
   refreshData: async () => {
-    await loadData(false, true)
-    await refreshFilterOptions()
+    // Run both data and filter options refresh in parallel to reduce delay
+    await Promise.all([
+      loadData(false, true),
+      refreshFilterOptions()
+    ])
   },
   refreshColumns: loadColumnsConfig
 }
@@ -1054,6 +1067,19 @@ onMounted(async () => {
   cursor: help;
 }
 
+.list-column-tag {
+  display: inline-block;
+  padding: 0 8px;
+  height: 20px;
+  line-height: 18px;
+  font-size: 12px;
+  color: #409eff;
+  background: #ecf5ff;
+  border: 1px solid #d9ecff;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
 .silent-loading-bar {
   position: absolute;
   top: 0;
@@ -1073,10 +1099,25 @@ onMounted(async () => {
 
 /* VXETable Styles */
 :deep(.vxe-table--render-default .vxe-body--row.row--current) {
-  background-color: #7ab8ff !important;
+  background-color: #ecf5ff !important;
+  color: #409eff;
+  font-weight: bold;
+}
+
+:deep(.vxe-table--render-default .vxe-body--row.row--current .vxe-body--column) {
+  border-top: 1px solid #409eff !important;
+  border-bottom: 1px solid #409eff !important;
+}
+
+:deep(.vxe-table--render-default .vxe-body--row.row--current .vxe-body--column:first-child) {
+  border-left: 4px solid #409eff !important;
 }
 
 :deep(.vxe-table--render-default .vxe-body--column.col--ellipsis) {
-  height: 32px;
+  height: 28px;
+}
+:deep(.vxe-table--render-default .vxe-cell) {
+  padding-top: 0;
+  padding-bottom: 0;
 }
 </style>

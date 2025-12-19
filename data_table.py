@@ -219,8 +219,14 @@ class DataTable:
             return filters.dict(exclude_none=True)
         return {}
     
-    def _update_column_options(self) -> bool:
+    def _update_column_options(self, force: bool = False) -> bool:
         """更新列配置中的筛选选项（对于 multi-select 和 select 类型），返回是否有更新"""
+        # 如果不是强制更新，且数据量变化不大（小于5%），则跳过以提高性能
+        if not force and hasattr(self, '_last_options_update_len'):
+            current_len = len(self.dataframe)
+            if current_len > 0 and (current_len - self._last_options_update_len) / current_len < 0.05:
+                return False
+
         columns_updated = False
         for col_config in self.columns_config:
             if col_config.filterType in ['multi-select', 'select']:
@@ -228,6 +234,7 @@ class DataTable:
                     if col_config.prop not in self.dataframe.columns:
                         continue
                     
+                    # 使用 sample 提高性能，或者直接计算 nunique
                     unique_count = self.dataframe[col_config.prop].nunique()
                     
                     if unique_count > 100:
@@ -244,6 +251,8 @@ class DataTable:
                             columns_updated = True
                 except Exception:
                     pass
+        
+        self._last_options_update_len = len(self.dataframe)
         return columns_updated
     
     def _build_pandas_filter(self, filters: Optional[FilterParams] = None, df: Optional[pd.DataFrame] = None) -> pd.Series:
@@ -554,12 +563,18 @@ class DataTable:
             "columns": columns_list
         }
     
-    def get_row_position(self, row_id: Any, filters: Optional['FilterParams'] = None) -> Dict[str, Any]:
-        """获取行在筛选结果中的位置
+    def get_row_position(self, 
+                         row_id: Any, 
+                         filters: Optional['FilterParams'] = None,
+                         sort_by: Optional[str] = None,
+                         sort_order: Optional[str] = None) -> Dict[str, Any]:
+        """获取行在筛选结果中的位置（支持排序）
         
         Args:
             row_id: 行的ID值
             filters: 筛选条件
+            sort_by: 排序字段
+            sort_order: 排序方向
         
         Returns:
             包含found和position的字典
@@ -571,19 +586,26 @@ class DataTable:
                 return {"found": False, "position": -1}
         
         mask = self._build_pandas_filter(filters, df=current_df)
-        filtered_df = current_df[mask].copy()
+        filtered_df = current_df[mask]
+        
+        if filtered_df.empty:
+            return {"found": False, "position": -1}
+
+        # 排序（如果需要）
+        if sort_by and sort_by in filtered_df.columns:
+            ascending = sort_order == 'ascending' if sort_order else True
+            filtered_df = filtered_df.sort_values(by=sort_by, ascending=ascending, na_position='last')
         
         # 查找选中行的位置
-        matching_rows = filtered_df[filtered_df['id'] == row_id]
-        if not matching_rows.empty:
-            filtered_df_reset = filtered_df.reset_index(drop=True)
-            matching_rows_reset = filtered_df_reset[filtered_df_reset['id'] == row_id]
-            if not matching_rows_reset.empty:
-                position = matching_rows_reset.index[0]
-                return {
-                    "found": True,
-                    "position": int(position)
-                }
+        # 重置索引以便获取当前排序下的绝对位置
+        filtered_df_reset = filtered_df.reset_index(drop=True)
+        matching_indices = filtered_df_reset.index[filtered_df_reset['id'] == row_id].tolist()
+        
+        if matching_indices:
+            return {
+                "found": True,
+                "position": int(matching_indices[0])
+            }
         
         return {
             "found": False,
@@ -694,7 +716,7 @@ class DataTable:
             self.columns_config = reordered_config
             
             # 更新列配置中的筛选选项
-            if self._update_column_options():
+            if self._update_column_options(force=True):
                 columns_updated = True
             
             # 验证列配置
@@ -877,7 +899,7 @@ class DataTable:
                 raise
             
             # 更新列配置中的筛选选项
-            if self._update_column_options():
+            if self._update_column_options(force=False):
                 columns_updated = True
             
             # 验证列配置
