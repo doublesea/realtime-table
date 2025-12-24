@@ -7,32 +7,33 @@
 ### 1. 双方案对比架构
 - **VXETable (推荐)**：针对 500+ 行数据的极速虚拟滚动方案，支持毫秒级页面响应。
 - **Element Plus Table**：传统表格展示方案，适用于中小规模数据集。
-- **动态切换**：支持在前端实时切换渲染引擎，方便进行性能和视觉对比。
+- **后端动态切换**：支持在 Python 端实时切换渲染引擎（VXETable vs Element Plus），方便进行性能对比和视觉评估。
 
 ### 2. 极致性能优化
 - **虚拟滚动**：VXETable 方案原生支持虚拟 DOM 渲染，即使展示 2000+ 行/页也能保持 60fps 的滚动体验。
 - **并行刷新**：数据加载与列筛选选项同步并行获取，显著降低网络等待延迟。
-- **节流更新**：针对实时流数据，对列头筛选下拉列表进行智能节流（2秒/次），平衡实时性与 CPU 占用。
+- **节流更新**：针对实时流数据，对列头筛选下拉列表进行智能节流（2秒/次），并根据数据增量（>=5%）智能触发后端选项重新计算。
 - **轻量级组件**：在 VXETable 中使用原生 CSS 标签替代重量级 UI 组件，极大提升渲染效率。
 
 ### 3. 深度 NiceGUI 集成
 - **原生 Python 控制**：通过 `NiceTable` 类轻松将 Vue 表格嵌入 NiceGUI 应用。
+- **中央注册机制**：采用 `App.vue` 统一管理多实例注册与方法转发，确保在引擎切换时 API 通信不中断。
 - **实时数据流**：支持 `add_data()` 增量更新，后端数据变化可实时推送到前端展示。
 - **跨实例隔离**：基于 `x-table-id` 的多实例管理架构，支持在同一页面运行多个独立的表格控件。
 
 ### 4. 增强的交互体验
+- **紧凑型 UI 设计**：全站采用 `mini` / `small` 尺寸，优化行高与间距，提升信息密度。
+- **分页增强**：采用 `1+3+1` 精简分页布局，支持指针悬停的页码快速跳转。
 - **列设置 (Native VXE Customization)**：
-  - 点击“列设置”按钮可打开原生面板。
-  - 支持 **拖拽调整列顺序**。
-  - 支持 **列显示/隐藏** 切换。
-  - 自动持久化：列顺序和可见性设置自动保存至浏览器 Storage。
+  - VXETable 方案通过原生面板支持 **拖拽排序** 和 **显显隐切换**。
+  - 设置自动持久化至浏览器本地存储。
 - **行选中保持**：
-  - 筛选/排序变更后，系统自动定位并 **滚动到选中行**。
+  - 筛选/排序/版本切换后，系统自动定位并 **滚动到选中行**。
   - 采用“立即+延迟”的双重滚动算法，确保在虚拟滚动场景下精确定位。
 - **多功能筛选**：
   - 支持文本、数字、多选、日期等多种类型。
   - **16进制支持**：数字列支持直接输入 `0x123` 进行筛选。
-  - **流式追踪**：开启“自动添加”时，支持自动跳转到最后一页追踪最新数据。
+  - **详情展示优化**：展开行详情时自动过滤 `_X_` 开头的内部保留键。
 
 ## 系统架构
 
@@ -61,13 +62,20 @@ classDiagram
     }
 
     %% 前端组件
+    class AppProxy {
+        -currentVersion: string
+        -dataTableRef: Component
+        +refreshData()
+        +refreshColumns()
+        +switchVersion(version)
+    }
+
     class VxeDataTable {
         -tableData: TableData[]
         -selectedRowId: number
         +loadData(keepSelected, silent)
         +handleVxeSortChange()
         +handleFilterChange()
-        +refreshFilterOptions()
     }
 
     class DataApi {
@@ -77,6 +85,8 @@ classDiagram
     }
 
     NiceTable *-- DataTable : 包含
+    AppProxy --|> VxeDataTable : 转发方法
+    AppProxy --|> ElementTable : 转发方法
     VxeDataTable ..> DataApi : 使用
     DataApi ..> NiceTable : 发起 API 请求 (FastAPI)
 ```
@@ -182,6 +192,56 @@ python nicegui_empty_table.py
 - `refresh_data()`: 通知前端重新从后端获取最新数据。
 - `add_data(records)`: 向 DataFrame 增量追加数据。
 - `update_source(df)`: 替换整个数据源。
+
+## NiceTable 接口文档
+
+### 1. 构造函数 `NiceTable()`
+
+| 参数 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `dataframe` | `pd.DataFrame` | **必填** | 表格的数据源 |
+| `columns_config` | `List[ColumnConfig]` | `None` | 可选。如果不提供，将根据 DataFrame 自动推断 |
+| `page_size` | `int` | `200` | 每页显示的默认行数 |
+| `use_vxe` | `bool` | `False` | 是否默认使用 VXETable 引擎（建议设为 `True`） |
+
+### 2. 公共方法
+
+| 方法 | 说明 |
+| :--- | :--- |
+| `add_data(records: List[Dict], refresh: bool = False)` | 向表格追加一条或多条数据。`refresh=True` 时立即同步至前端。 |
+| `update_source(dataframe: pd.DataFrame)` | 使用全新的 DataFrame 替换当前数据源，并通知前端重载。 |
+| `switch_version(version: str)` | 切换渲染引擎。可选值为 `'vxe'` 或 `'element'`。 |
+| `refresh_data()` | 显式触发前端刷新当前页的数据显示。 |
+| `refresh_columns()` | 显式触发前端刷新列配置（如列标题、宽度等）。 |
+
+### 3. 使用示例 (Quick Start)
+
+```python
+import pandas as pd
+from nicegui import ui
+from nice_table import NiceTable
+
+# 1. 准备数据
+df = pd.DataFrame([
+    {'id': 1, 'name': 'Item A', 'price': 100.5},
+    {'id': 2, 'name': 'Item B', 'price': 200.0},
+])
+
+@ui.page('/')
+def main():
+    # 2. 创建表格
+    table = NiceTable(dataframe=df, use_vxe=True)
+    
+    # 3. 操作按钮
+    with ui.row():
+        ui.button('追加数据', on_click=lambda: table.add_data(
+            [{'id': 3, 'name': 'New Item', 'price': 50.0}], 
+            refresh=True
+        ))
+        ui.button('切到 Element', on_click=lambda: table.switch_version('element'))
+
+ui.run(port=8081)
+```
 
 ## 注意事项
 - **VXETable 免费版**: 本项目使用 VXETable 免费版本，已能满足大部分高性能需求。
