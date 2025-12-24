@@ -929,49 +929,13 @@ const exposedMethods = {
 
 defineExpose(exposedMethods)
 
-// 注册到全局注册表的函数 (Removed as App.vue handles this)
-/*
-const registerToGlobalRegistry = () => {
-  const root = document.getElementById('root')
-  const tableId = root?.dataset.tableId
-  
-  if (tableId) {
-    if (!(window as any).__nice_table_registry) {
-      (window as any).__nice_table_registry = {}
-    }
-    
-    const registry = (window as any).__nice_table_registry
-    registry[tableId] = exposedMethods
-    console.log('VxeDataTable: NiceTable instance registered:', tableId, registry)
-    
-    window.dispatchEvent(new CustomEvent('nice-table-ready', { detail: { tableId } }))
-    return true
-  }
-  return false
-}
-*/
-
 onMounted(async () => {
   await loadColumnsConfig()
   await loadData()
   
-  // 等待一下确保 DOM 完全渲染后注册
+  // 等待一下确保 DOM 完全渲染
   await nextTick()
   await nextTick()
-  // await new Promise(resolve => setTimeout(resolve, 300))
-  
-  /*
-  if (!registerToGlobalRegistry()) {
-    let retries = 0
-    const maxRetries = 30
-    const interval = setInterval(() => {
-      retries++
-      if (registerToGlobalRegistry() || retries >= maxRetries) {
-        clearInterval(interval)
-      }
-    }, 200)
-  }
-  */
 })
 </script>
 

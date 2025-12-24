@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 import pandas as pd
 from nicegui import ui
@@ -10,6 +11,10 @@ from nicegui import ui
 from data_generator import generate_single_record, generate_batch_records
 from data_table import generate_columns_config_from_dataframe
 from nice_table import NiceTable
+
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 def create_empty_dataframe():
@@ -99,8 +104,6 @@ def main_page():
                     
                     # 每10000行记录一次状态（用于调试）
                     if total_count % 10000 == 0:
-                        import logging
-                        logger = logging.getLogger(__name__)
                         logger.info(f"数据量达到 {total_count} 行")
                     
                     # 防抖机制：根据数据量调整刷新频率

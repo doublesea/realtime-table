@@ -42,21 +42,6 @@ class FilterGroup(BaseModel):
 class FilterParams(BaseModel):
     """动态筛选参数，支持任意字段名"""
     model_config = {"extra": "allow"}  # 允许额外字段
-    
-    @classmethod
-    def parse_dynamic_filter(cls, field_name: str, value: Any) -> Any:
-        """动态解析筛选值，根据值的类型判断是 NumberFilter、FilterGroup 还是普通值"""
-        if value is None:
-            return None
-        if isinstance(value, dict):
-            # 如果有 filters 键，说明是 FilterGroup
-            if 'filters' in value:
-                return FilterGroup(**value)
-            # 如果有 operator 或 value，说明是 NumberFilter
-            elif 'operator' in value or 'value' in value:
-                return NumberFilter(**value)
-        # 其他情况直接返回
-        return value
 
 
 class DataTable:

@@ -1701,31 +1701,6 @@ const exposedMethods = {
 
 defineExpose(exposedMethods)
 
-// 注册到全局注册表的函数 (Removed as App.vue handles this)
-/*
-const registerToGlobalRegistry = () => {
-  // 等待一下确保 DOM 完全渲染
-  const root = document.getElementById('root')
-  const tableId = root?.dataset.tableId
-  
-  if (tableId) {
-    // 注册到全局注册表
-    if (!(window as any).__nice_table_registry) {
-      (window as any).__nice_table_registry = {}
-    }
-    
-    const registry = (window as any).__nice_table_registry
-    registry[tableId] = exposedMethods
-    console.log('DataTable: NiceTable instance registered:', tableId, registry)
-    
-    // 触发自定义事件
-    window.dispatchEvent(new CustomEvent('nice-table-ready', { detail: { tableId } }))
-    return true
-  }
-  return false
-}
-*/
-
 // 初始化
 onMounted(async () => {
   try {
@@ -1749,33 +1724,9 @@ onMounted(async () => {
   // 等待多个 tick 后注册到全局注册表
   await nextTick()
   await nextTick()
-  // await new Promise(resolve => setTimeout(resolve, 300)) // 额外等待 300ms 确保 DOM 完全渲染
   
   // 强制启用分页跳转输入框
   enablePaginationJumper()
-  
-  /*
-  // 如果第一次尝试失败，使用轮询重试
-  if (!registerToGlobalRegistry()) {
-    let retries = 0
-    const maxRetries = 30 // 增加到 30 次，总共 6 秒
-    const interval = setInterval(() => {
-      retries++
-      if (registerToGlobalRegistry() || retries >= maxRetries) {
-        clearInterval(interval)
-        if (retries >= maxRetries) {
-          console.warn('DataTable: Failed to register to global registry after', maxRetries, 'retries')
-          // 最后一次尝试：直接检查 root元素
-          const root = document.getElementById('root')
-          const tableId = root?.dataset.tableId
-          if (tableId && !(window as any).__nice_table_registry?.[tableId]) {
-            console.error('DataTable: Registration failed. Root element:', root, 'TableId:', tableId)
-          }
-        }
-      }
-    }, 200)
-  }
-  */
 })
 </script>
 

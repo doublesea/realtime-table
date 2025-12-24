@@ -210,30 +210,6 @@ class NiceTable(ui.element):
         self.refresh_columns()
         self.refresh_data()
 
-
-    @property
-    def is_auto_add_running(self) -> bool:
-        """检查自动添加任务是否正在运行"""
-        return self._auto_add_running
-
-    async def toggle_auto_add(self, batch_size: int = 100, interval: float = 0.5) -> bool:
-        """
-        切换自动添加任务状态
-        
-        Args:
-            batch_size: 每批添加的记录数
-            interval: 添加间隔（秒）
-            
-        Returns:
-            bool: 切换后的运行状态（True=运行中, False=已停止）
-        """
-        if self._auto_add_running:
-            await self.stop_auto_add()
-            return False
-        else:
-            self.start_auto_add(batch_size, interval)
-            return True
-
     # ---------- Internal helpers ----------
 
     def _ensure_assets(self):
