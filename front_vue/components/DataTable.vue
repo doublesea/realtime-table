@@ -9,8 +9,10 @@
           v-model:page-size="pagination.pageSize"
           :page-sizes="[50, 100, 200, 500]"
           :total="pagination.total"
+          :pager-count="5"
           layout="total, sizes, prev, pager, next, jumper"
           background
+          small
           :prev-icon="ArrowLeft"
           :next-icon="ArrowRight"
           @size-change="handleSizeChange"
@@ -2303,52 +2305,21 @@ onMounted(async () => {
 }
 
 /* 分页跳转输入框：移除禁用状态，设置正确的样式和光标 */
-:deep(.el-pagination__jump) {
-  cursor: pointer !important;
-}
-
-:deep(.el-pagination__jump *) {
-  cursor: pointer !important;
-}
-
-:deep(.el-pagination__jump .el-input) {
-  cursor: pointer !important;
-}
-
-:deep(.el-pagination__jump .el-input__inner) {
-  cursor: pointer !important;
-  color: #303133 !important;
-  background-color: #fff !important;
-  opacity: 1 !important;
-}
-
-:deep(.el-pagination__jump .el-input__inner:disabled),
-:deep(.el-pagination__jump .el-input__inner[disabled]) {
-  cursor: pointer !important;
-  color: #303133 !important;
-  background-color: #fff !important;
-  -webkit-text-fill-color: #303133 !important;
-  opacity: 1 !important;
-}
-
-:deep(.el-pagination__jump .el-input__wrapper) {
-  cursor: pointer !important;
-}
-
+:deep(.el-pagination__jump),
+:deep(.el-pagination__jump *),
+:deep(.el-pagination__jump .el-input),
+:deep(.el-pagination__jump .el-input__inner),
+:deep(.el-pagination__jump .el-input__wrapper),
 :deep(.el-pagination__jump input) {
   cursor: pointer !important;
-  color: #303133 !important;
-  background-color: #fff !important;
-  opacity: 1 !important;
 }
 
-:deep(.el-pagination__jump input:disabled),
-:deep(.el-pagination__jump input[disabled]) {
-  cursor: pointer !important;
+:deep(.el-pagination__jump .el-input__inner),
+:deep(.el-pagination__jump input) {
   color: #303133 !important;
   background-color: #fff !important;
-  -webkit-text-fill-color: #303133 !important;
   opacity: 1 !important;
+  -webkit-text-fill-color: #303133 !important;
 }
 
 /* 移除禁用状态的样式 */

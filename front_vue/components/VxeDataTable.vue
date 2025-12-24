@@ -6,11 +6,13 @@
       <div style="display: flex; gap: 12px; align-items: center;">
         <el-pagination
           v-model:current-page="pagination.page"
-        v-model:page-size="pagination.pageSize"
-        :page-sizes="[100, 200, 500, 1000, 2000]"
-        :total="pagination.total"
+          v-model:page-size="pagination.pageSize"
+          :page-sizes="[100, 200, 500, 1000, 2000]"
+          :total="pagination.total"
+          :pager-count="5"
           layout="total, sizes, prev, pager, next, jumper"
           background
+          small
           :prev-icon="ArrowLeft"
           :next-icon="ArrowRight"
           @size-change="handleSizeChange"
@@ -1105,6 +1107,24 @@ onMounted(async () => {
 @keyframes loading-bar {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
+}
+
+/* 分页跳转输入框悬停图标 */
+:deep(.el-pagination__jump),
+:deep(.el-pagination__jump *),
+:deep(.el-pagination__jump .el-input),
+:deep(.el-pagination__jump .el-input__inner),
+:deep(.el-pagination__jump .el-input__wrapper),
+:deep(.el-pagination__jump input) {
+  cursor: pointer !important;
+}
+
+:deep(.el-pagination__jump .el-input__inner),
+:deep(.el-pagination__jump input) {
+  color: #303133 !important;
+  background-color: #fff !important;
+  opacity: 1 !important;
+  -webkit-text-fill-color: #303133 !important;
 }
 
 /* VXETable Styles */
