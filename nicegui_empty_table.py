@@ -37,7 +37,8 @@ def main_page():
     empty_df, columns_config = create_empty_dataframe()
     data_state = {
         'df_source': empty_df.copy(),
-        'next_id': 1
+        'next_id': 1,
+        'current_columns': list(empty_df.columns)
     }
 
     # 页面布局
@@ -63,6 +64,8 @@ def main_page():
                 with ui.row().classes('items-center gap-2'):
                     test_column_order_btn = ui.button('测试列顺序', icon='swap_vert').props('flat color=white size=sm')
                     show_order_btn = ui.button('显示列顺序', icon='list').props('flat color=white size=sm')
+                    # 列配置切换按钮
+                    switch_col_btn = ui.button('切换列配置', icon='settings_suggest').props('flat color=white size=sm')
                 column_order_info = ui.label('').classes('text-white text-xs max-w-md')
 
                 auto_add_running = {'flag': False}
@@ -88,8 +91,20 @@ def main_page():
                         # 数据源完全由本文件管理
                         def update_local_df():
                             new_df = pd.DataFrame(new_records)
-                            # 确保新数据中有 ID (虽然 generate_batch_records 会生成 id)
-                            # 如果有特殊的列处理逻辑，可以在这里添加
+                            
+                            # 确保新数据符合当前的列配置 (data_state['current_columns'])
+                            current_cols = data_state['current_columns']
+                            
+                            # 补全新列 (例如切换配置后新增的列)
+                            for col in current_cols:
+                                if col not in new_df.columns:
+                                    if col == 'remark': new_df[col] = '自动补齐'
+                                    elif col == 'is_priority': new_df[col] = False
+                                    else: new_df[col] = None
+                            
+                            # 只保留当前需要的列，并确保顺序一致
+                            new_df = new_df[current_cols]
+                            
                             return pd.concat([data_state['df_source'], new_df], ignore_index=True)
                             
                         data_state['df_source'] = await asyncio.to_thread(update_local_df)
@@ -270,6 +285,62 @@ def main_page():
                     print(f"{'='*60}\n")
                 
                 show_order_btn.on('click', show_column_order)
+
+                async def switch_columns():
+                    """切换列配置：保留一些列，增加2列，删除2列"""
+                    current_cols = data_state['current_columns']
+                    
+                    if 'remark' not in current_cols:
+                        # 切换到新配置：删除 payment_method, item_count; 增加 remark, is_priority
+                        to_delete = ['payment_method', 'item_count']
+                        to_add = ['remark', 'is_priority']
+                        
+                        # 保留其他列，并过滤掉要删除的
+                        new_cols = [c for c in current_cols if c not in to_delete]
+                        # 在适当位置插入新列（比如 id 之后）
+                        if 'id' in new_cols:
+                            idx = new_cols.index('id') + 1
+                            new_cols[idx:idx] = to_add
+                        else:
+                            new_cols.extend(to_add)
+                        
+                        ui.notify('切换列配置：新增 remark, is_priority; 删除 payment_method, item_count', type='info')
+                    else:
+                        # 恢复到原始配置
+                        empty_df, _ = create_empty_dataframe()
+                        new_cols = list(empty_df.columns)
+                        ui.notify('恢复原始列配置', type='info')
+                    
+                    # 更新 data_state 中的当前列定义
+                    data_state['current_columns'] = new_cols
+                    
+                    # 更新现有的 DataFrame 结构
+                    def update_df_structure(df, target_cols):
+                        if df.empty:
+                            # 如果是空表，直接构造带列名的空 DF
+                            return pd.DataFrame(columns=target_cols)
+                        
+                        # 补全缺失列
+                        for col in target_cols:
+                            if col not in df.columns:
+                                if col == 'remark': df[col] = '切配置后生成'
+                                elif col == 'is_priority': df[col] = False
+                                else: df[col] = None
+                        # 只保留目标列并排序
+                        return df[target_cols].copy()
+                    
+                    data_state['df_source'] = await asyncio.to_thread(update_df_structure, data_state['df_source'], new_cols)
+                    
+                    # 通知表格更新
+                    result = await asyncio.to_thread(table.logic.update_dataframe, data_state['df_source'])
+                    if result.get('columns_updated'):
+                        table.refresh_columns()
+                    table.refresh_data()
+                    
+                    # 打印信息
+                    await show_column_order()
+
+                switch_col_btn.on('click', switch_columns)
 
         with ui.card().classes('w-full flex-grow p-0 overflow-hidden'):
             table = NiceTable(dataframe=data_state['df_source'], columns_config=columns_config, page_size=200, use_vxe=True)

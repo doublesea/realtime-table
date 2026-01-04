@@ -6,6 +6,8 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
 import VXETable from 'vxe-table'
 import 'vxe-table/lib/style.css'
+import VxeUI from 'vxe-pc-ui'
+import 'vxe-pc-ui/lib/style.css'
 import App from './App.vue'
 import './index.css'
 
@@ -19,6 +21,7 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 app.use(ElementPlus, {
   locale: zhCn,
 })
+app.use(VxeUI)
 app.use(VXETable)
 
 app.mount('#root')

@@ -47,8 +47,7 @@
         auto-resize
         show-overflow="ellipsis"
         show-header-overflow="ellipsis"
-        highlight-current-row
-        :row-config="{ isHover: true, keyField: 'id' }"
+        :row-config="{ isHover: true, isCurrent: true, keyField: 'id' }"
         :column-config="{ resizable: true, fit: true }"
         :custom-config="{ storage: true, immediate: true }"
         :toolbar-config="{ custom: true }"
