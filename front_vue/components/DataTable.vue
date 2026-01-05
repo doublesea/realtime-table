@@ -55,7 +55,7 @@
         <template #default="{ row }">
           <div class="expand-detail" v-loading="rowDetailsLoading[row.id]">
             <template v-if="rowDetails[row.id] && rowDetails[row.id].length > 0">
-              <el-table :data="rowDetails[row.id]" border size="small" style="width: 100%">
+              <el-table :data="rowDetails[row.id]" border size="small" style="width: fit-content; max-width: 100%">
                 <el-table-column 
                   v-for="column in getDetailColumns(rowDetails[row.id])" 
                   :key="column.prop"
@@ -1897,6 +1897,8 @@ onMounted(async () => {
   background-color: #f5f7fa;
   border-radius: 4px;
   min-height: 100px;
+  width: fit-content;
+  max-width: calc(100% - 32px);
 }
 
 .loading-message,
