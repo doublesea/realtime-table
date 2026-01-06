@@ -702,7 +702,7 @@ class DataTable:
             # 检查顺序是否改变
             if not structure_updated and [c.prop for c in self.columns_config] != [c.prop for c in reordered_config]:
                 structure_updated = True
-
+            
             # 更新列配置列表
             self.columns_config = reordered_config
             

@@ -37,7 +37,8 @@
       <div v-if="silentLoading" class="silent-loading-bar"></div>
       <vxe-table
         ref="tableRef"
-        id="vxe_data_table"
+        :id="vxeTableId"
+        :key="vxeTableKey"
         :data="tableData"
         :loading="loading && !silentLoading"
         stripe
@@ -128,11 +129,12 @@
                           } 
                         }"
                         @mousedown.stop
+                        @mouseup.stop
                       >
                         <Filter />
                       </el-icon>
                     </template>
-                    <div class="filter-popover" @click.stop @mousedown.stop>
+                    <div class="filter-popover" @click.stop @mousedown.stop @mouseup.stop @contextmenu.stop>
                       <div style="margin-bottom: 8px; font-weight: 600;">{{ col.label }}筛选</div>
                       
                       <!-- 文本筛选 -->
@@ -465,6 +467,18 @@ const selectedRowId = ref<number | null>(null)
 const tableRef = ref<VxeTableInstance<TableData>>()
 const filterOptions = reactive<Record<string, string[]>>({})
 
+// 动态表格 ID，用于 vxe-table 的缓存隔离
+const vxeTableId = computed(() => {
+  const tid = getTableId()
+  return tid ? `vxe_table_${tid}` : 'vxe_data_table'
+})
+
+// 表格 Key，当列结构发生变化时强制重置表格，防止缓存导致的鬼影或布局错乱
+const vxeTableKey = computed(() => {
+  const props = columnConfig.value.map(c => c.prop).join(',')
+  return `${vxeTableId.value}_${props}`
+})
+
 // 行详情数据
 const rowDetails = reactive<Record<number, RowDetail>>({})
 const rowDetailsLoading = reactive<Record<number, boolean>>({})
@@ -504,8 +518,16 @@ const handleClickOutside = (event: MouseEvent) => {
     return
   }
 
-  const isInsidePopover = target.closest('.el-popover') || target.closest('.el-select-dropdown') || target.closest('.el-popper')
+  // 增加对弹窗内部元素的判定逻辑
+  const isInsidePopover = target.closest('.el-popover') || 
+                          target.closest('.el-select-dropdown') || 
+                          target.closest('.el-popper') ||
+                          target.closest('.el-input__inner') ||
+                          target.closest('.el-button') ||
+                          target.closest('.el-select__tags')
+                          
   const isFilterIcon = target.closest('.filter-icon')
+  
   if (!isInsidePopover && !isFilterIcon) {
     Object.keys(popoverVisible).forEach(prop => {
       popoverVisible[prop] = false
@@ -547,8 +569,8 @@ const loadColumnsConfig = async () => {
     const newProps = config.columns.map((c: any) => c.prop).join(',')
     
     if (oldProps !== newProps) {
-      columnConfig.value = config.columns
-      initFilterForm(config.columns)
+    columnConfig.value = config.columns
+    initFilterForm(config.columns)
       // 清理失效的 popover 状态
       Object.keys(popoverVisible).forEach(key => {
         if (!config.columns.find((c: any) => c.prop === key)) {
