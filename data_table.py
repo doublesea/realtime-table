@@ -680,6 +680,8 @@ class DataTable:
             # 更新 DataFrame 引用
             self.dataframe = new_dataframe
             
+            structure_updated = bool(added_columns or removed_columns)
+            
             # 按照 new_dataframe.columns 的顺序重新排列列配置
             # 创建一个字典，方便快速查找列配置
             config_dict = {c.prop: c for c in self.columns_config}
@@ -695,21 +697,26 @@ class DataTable:
                     new_config = generate_columns_config_from_dataframe(temp_df)
                     if new_config:
                         reordered_config.append(new_config[0])
-                        columns_updated = True
+                        structure_updated = True
             
+            # 检查顺序是否改变
+            if not structure_updated and [c.prop for c in self.columns_config] != [c.prop for c in reordered_config]:
+                structure_updated = True
+
             # 更新列配置列表
             self.columns_config = reordered_config
             
             # 更新列配置中的筛选选项
-            if self._update_column_options(force=True):
-                columns_updated = True
+            options_updated = self._update_column_options(force=True)
             
             # 验证列配置
             self._validate_columns()
             
             return {
                 "success": True,
-                "columns_updated": columns_updated,
+                "structure_updated": structure_updated,
+                "options_updated": options_updated,
+                "columns_updated": structure_updated or options_updated,  # 保持兼容性
                 "total_count": len(self.dataframe)
             }
 
@@ -884,16 +891,19 @@ class DataTable:
                 raise
             
             # 更新列配置中的筛选选项
-            if self._update_column_options(force=False):
-                columns_updated = True
+            options_updated = self._update_column_options(force=False)
             
             # 验证列配置
             self._validate_columns()
             
+            structure_updated = bool(added_columns)
+            
             return {
                 "success": True,
                 "added_count": len(new_df),
-                "columns_updated": columns_updated,
+                "structure_updated": structure_updated,
+                "options_updated": options_updated,
+                "columns_updated": structure_updated or options_updated,  # 保持兼容性
                 "added_columns": list(added_columns) if added_columns else []
             }
 

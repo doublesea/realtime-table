@@ -111,6 +111,7 @@
                     :popper-options="col.filterType === 'number' || col.filterType === 'multi-select' ? { modifiers: [{ name: 'preventOverflow', options: { padding: 8 } }, { name: 'computeStyles', options: { gpuAcceleration: false } }] } : undefined"
                     :hide-after="0"
                     @click.stop
+                    @mousedown.stop
                   >
                     <template #reference>
                       <el-icon 
@@ -126,11 +127,12 @@
                             }
                           } 
                         }"
+                        @mousedown.stop
                       >
                         <Filter />
                       </el-icon>
                     </template>
-                    <div class="filter-popover" @click.stop>
+                    <div class="filter-popover" @click.stop @mousedown.stop>
                       <div style="margin-bottom: 8px; font-weight: 600;">{{ col.label }}筛选</div>
                       
                       <!-- 文本筛选 -->
@@ -495,6 +497,13 @@ let keepOpenInterval: number | null = null
 
 const handleClickOutside = (event: MouseEvent) => {
   const target = event.target as HTMLElement
+  
+  // 如果点击的目标元素已经从 DOM 中移除，通常是因为某些组件（如清除按钮）被点击后立即消失
+  // 这种情况下我们不应该关闭弹窗，因为点击很可能发生在弹窗内部
+  if (!document.body.contains(target)) {
+    return
+  }
+
   const isInsidePopover = target.closest('.el-popover') || target.closest('.el-select-dropdown') || target.closest('.el-popper')
   const isFilterIcon = target.closest('.filter-icon')
   if (!isInsidePopover && !isFilterIcon) {
@@ -532,8 +541,21 @@ const sortInfo = reactive({
 const loadColumnsConfig = async () => {
   try {
     const config = await dataApi.getColumnsConfig()
-    columnConfig.value = config.columns
-    initFilterForm(config.columns)
+    // 只有当列的数量或属性发生变化时才更新，避免不必要的重绘
+    // 这里的简单判断可以覆盖大部分情况
+    const oldProps = columnConfig.value.map(c => c.prop).join(',')
+    const newProps = config.columns.map((c: any) => c.prop).join(',')
+    
+    if (oldProps !== newProps) {
+      columnConfig.value = config.columns
+      initFilterForm(config.columns)
+      // 清理失效的 popover 状态
+      Object.keys(popoverVisible).forEach(key => {
+        if (!config.columns.find((c: any) => c.prop === key)) {
+          delete popoverVisible[key]
+        }
+      })
+    }
     await refreshFilterOptions()
   } catch (error) {
     ElMessage.error('加载列配置失败')

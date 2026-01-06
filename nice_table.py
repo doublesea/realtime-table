@@ -136,7 +136,8 @@ class NiceTable(ui.element):
     def update_source(self, dataframe: pd.DataFrame):
         """更新数据源 (使用外部管理的 DataFrame)"""
         result = self.logic.update_dataframe(dataframe)
-        if result.get('columns_updated'):
+        # 仅在列结构（增减、顺序）发生变化时才刷新列配置，避免频繁重绘导致筛选框关闭
+        if result.get('structure_updated'):
             self.refresh_columns()
         self.refresh_data()
 

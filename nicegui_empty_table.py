@@ -144,7 +144,8 @@ def main_page():
                         # 使用 asyncio.to_thread 避免 update_dataframe 中的计算阻塞主线程
                         # 注意：update_dataframe 中包含了耗时的 unique() 计算
                         result = await asyncio.to_thread(table.logic.update_dataframe, data_state['df_source'])
-                        if result.get('columns_updated'):
+                        # 仅在列结构（增减、顺序）发生变化时才刷新列配置，避免频繁重绘导致筛选框关闭
+                        if result.get('structure_updated'):
                             table.refresh_columns()
                         table.refresh_data()
                         refresh_pending['count'] = 0
@@ -230,7 +231,8 @@ def main_page():
                         ui.notify(f'列顺序测试失败！期望: {df_order}, 实际: {config_order}', type='negative')
                     
                     # 刷新表格
-                    if result.get('columns_updated'):
+                    # 仅在列结构（增减、顺序）发生变化时才刷新列配置
+                    if result.get('structure_updated'):
                         table.refresh_columns()
                     table.refresh_data()
                     
@@ -333,7 +335,8 @@ def main_page():
                     
                     # 通知表格更新
                     result = await asyncio.to_thread(table.logic.update_dataframe, data_state['df_source'])
-                    if result.get('columns_updated'):
+                    # 仅在列结构（增减、顺序）发生变化时才刷新列配置
+                    if result.get('structure_updated'):
                         table.refresh_columns()
                     table.refresh_data()
                     
