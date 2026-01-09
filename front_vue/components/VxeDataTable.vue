@@ -1058,4 +1058,27 @@ onMounted(async () => {
   padding-top: 0;
   padding-bottom: 0;
 }
+
+/* 将过滤按钮移动到左边 */
+:deep(.vxe-header--column .vxe-cell) {
+  display: flex;
+  align-items: center;
+}
+
+:deep(.vxe-header--column .vxe-cell--title) {
+  order: 2;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:deep(.vxe-header--column .vxe-cell--filter) {
+  order: 1;
+  margin-right: 4px;
+}
+
+:deep(.vxe-header--column .vxe-cell--sort) {
+  order: 3;
+}
 </style>
