@@ -194,15 +194,47 @@ class DataTable:
         
         return field_mask
     
-    def _get_filter_dict(self, filters: Optional['FilterParams']) -> Dict[str, Any]:
-        """获取筛选参数字典"""
+    def _get_filter_dict(self, filters: Optional[Any]) -> Dict[str, Any]:
+        """获取筛选参数字典，支持 Pydantic 模型和普通字典，确保包含额外字段"""
         if not filters:
             return {}
+        
+        if isinstance(filters, dict):
+            return filters
+            
+        # 调试日志
+        self._logger.info(f"Building filter dict from object: {type(filters)}")
+        
+        res = {}
+        
+        # 1. 尝试使用 Pydantic v2 的 model_dump
         if hasattr(filters, 'model_dump'):
-            return filters.model_dump(exclude_none=True)
+            try:
+                res.update(filters.model_dump(exclude_none=True))
+            except Exception as e:
+                self._logger.error(f"model_dump failed: {e}")
+        # 尝试使用 Pydantic v1 的 dict
         elif hasattr(filters, 'dict'):
-            return filters.dict(exclude_none=True)
-        return {}
+            try:
+                res.update(filters.dict(exclude_none=True))
+            except Exception as e:
+                self._logger.error(f"dict() failed: {e}")
+        
+        # 2. 关键：获取 Pydantic v2 的额外字段 (extra="allow")
+        if hasattr(filters, 'model_extra') and filters.model_extra:
+            self._logger.info(f"Adding model_extra: {filters.model_extra}")
+            res.update(filters.model_extra)
+            
+        # 3. 兜底方案：从 __dict__ 中提取非私有属性
+        # 有些情况下，额外字段可能直接挂在 __dict__ 上
+        for k, v in filters.__dict__.items():
+            if k not in res and not k.startswith('_') and k != 'model_config' and k != 'model_fields':
+                res[k] = v
+        
+        if res:
+            self._logger.info(f"Final filter dict: {res}")
+            
+        return res
     
     def _update_column_options(self, force: bool = False) -> bool:
         """更新列配置中的筛选选项（对于 multi-select 和 select 类型），返回是否有更新"""
@@ -258,18 +290,27 @@ class DataTable:
         
         # 获取筛选参数字典
         filter_dict = self._get_filter_dict(filters)
+        self._logger.info(f"Applying filters: {filter_dict}")
         
         # 遍历所有筛选字段（包括动态字段和旧字段）
         for field_name, filter_value in filter_dict.items():
             
             # 检查字段是否存在于DataFrame中
             if field_name not in target_df.columns:
+                self._logger.warning(f"Filter field {field_name} not found in DataFrame columns")
                 continue
             
             # 查找对应的列配置
             col_config = next((c for c in self.columns_config if c.prop == field_name), None)
-            if not col_config or not col_config.filterable:
+            if not col_config:
+                self._logger.warning(f"Filter field {field_name} has no column config")
                 continue
+                
+            if not col_config.filterable:
+                self._logger.warning(f"Filter field {field_name} is marked as not filterable")
+                continue
+            
+            self._logger.info(f"Processing filter for {field_name}: type={col_config.filterType}, value={filter_value}")
             
             # 根据筛选类型处理
             if col_config.filterType == 'number':

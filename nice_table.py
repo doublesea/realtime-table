@@ -479,9 +479,11 @@ class NiceTable(ui.element):
                     await asyncio.sleep(0.2)
             
             # 最终尝试
-            inst = get_target_instance(request)
-            # ... (后面逻辑相同)
-            return {'success': True, 'data': {}}
+            try:
+                inst = get_target_instance(request)
+                return {'success': True, 'data': {}}
+            except Exception:
+                return {'success': False, 'data': {}, 'detail': 'Table instance not found'}
 
         @router.post('/add')
         async def add_data(request: Request, payload: Dict[str, Any]):

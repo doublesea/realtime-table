@@ -53,7 +53,9 @@
         :custom-config="{ storage: true, immediate: true }"
         :toolbar-config="{ custom: true }"
         :scroll-y="{ enabled: true, gt: 0 }"
+        :filter-config="{ remote: true }"
         @sort-change="handleVxeSortChange"
+        @filter-change="handleVxeFilterChange"
         @cell-click="handleVxeCellClick"
         @toggle-row-expand="handleVxeExpandChange"
       >
@@ -99,222 +101,110 @@
             :fixed="col.fixed"
             :sortable="col.sortable"
             :visible="col.prop !== 'id'"
+            :filters="col.filterable && col.filterType !== 'none' ? getInitialFilterData(col) : []"
+            :filter-render="{}"
           >
-            <template #header>
-              <div class="column-header">
-                <div class="header-title-row">
-                  <el-popover
-                    v-if="col.filterable && col.filterType !== 'none'"
-                    placement="bottom"
-                    :width="getFilterPopoverWidth(col.filterType || 'text')"
-                    :trigger="col.filterType === 'multi-select' ? 'manual' : 'click'"
-                    v-model:visible="popoverVisible[col.prop]"
-                    :popper-options="col.filterType === 'number' || col.filterType === 'multi-select' ? { modifiers: [{ name: 'preventOverflow', options: { padding: 8 } }, { name: 'computeStyles', options: { gpuAcceleration: false } }] } : undefined"
-                    :hide-after="0"
-                    @click.stop
-                    @mousedown.stop
-                  >
-                    <template #reference>
-                      <el-icon 
-                        class="filter-icon" 
-                        :style="{ color: hasActiveFilter(col.prop) ? '#409eff' : '#c0c4cc' }"
-                        @click.stop="() => { 
-                          if (col.filterType === 'multi-select') { 
-                            popoverVisible[col.prop] = !popoverVisible[col.prop]
-                            if (popoverVisible[col.prop]) {
-                              keepOpenPopovers.add(col.prop)
-                            } else {
-                              keepOpenPopovers.delete(col.prop)
-                            }
-                          } 
-                        }"
-                        @mousedown.stop
-                        @mouseup.stop
-                      >
-                        <Filter />
-                      </el-icon>
-                    </template>
-                    <div class="filter-popover" @click.stop @mousedown.stop @mouseup.stop @contextmenu.stop>
-                      <div style="margin-bottom: 8px; font-weight: 600;">{{ col.label }}筛选</div>
-                      
-                      <!-- 文本筛选 -->
-                      <template v-if="col.filterType === 'text'">
-                        <el-input
-                          v-model="filterInputs[col.prop]"
-                          :placeholder="`筛选${col.label}（按回车确认）`"
-                          size="small"
-                          clearable
-                          @keyup.enter="() => handleFilterChange(col.prop)"
-                          @clear="() => handleFilterChange(col.prop)"
-                        >
-                          <template #prefix>
-                            <el-icon style="font-size: 12px;"><Search /></el-icon>
-                          </template>
-                        </el-input>
-                      </template>
-                      
-                      <!-- 数字筛选（单条件） -->
-                      <template v-else-if="col.filterType === 'number' && !isMultiNumberFilter(col.prop)">
-                        <div style="display: flex; gap: 8px; align-items: center;">
-                          <el-select
-                            v-model="filterInputs[`${col.prop}Operator`]"
-                            placeholder="操作符"
-                            size="small"
-                            clearable
-                            style="width: 80px"
-                            :teleported="false"
-                            @click.stop
-                            popper-class="filter-select-dropdown"
-                          >
-                            <el-option label="=" value="=" />
-                            <el-option label=">" value=">" />
-                            <el-option label="<" value="<" />
-                            <el-option label=">=" value=">=" />
-                            <el-option label="<=" value="<=" />
-                          </el-select>
-                          <el-input
-                            v-model="filterInputs[`${col.prop}Value`]"
-                            placeholder="值（支持0x16进制）"
-                            size="small"
-                            style="flex: 1"
-                            @keyup.enter="() => handleFilterChange(col.prop)"
-                            @click.stop
-                          />
-                        </div>
-                        <div style="margin-top: 4px; font-size: 12px; color: #909399;">
-                          支持十进制或16进制（如：123 或 0x123）
-                        </div>
-                        <div style="margin-top: 8px;">
-                          <el-button type="primary" size="small" @click="() => handleFilterChange(col.prop)" style="width: 100%">应用筛选</el-button>
-                        </div>
-                      </template>
-                      
-                      <!-- 数字筛选（多条件） -->
-                      <template v-else-if="col.filterType === 'number' && isMultiNumberFilter(col.prop)">
-                        <div class="filter-group">
-                          <div
-                            v-for="(filter, index) in filterInputs[`${col.prop}Filters`]"
-                            :key="index"
-                            style="display: flex; gap: 8px; margin-top: 8px; align-items: center"
-                          >
-                            <el-select
-                              v-if="index > 0"
-                              v-model="filterInputs[`${col.prop}Logic`]"
-                              size="small"
-                              style="width: 60px"
-                              :teleported="false"
-                              @click.stop
-                              popper-class="filter-select-dropdown"
-                            >
-                              <el-option label="AND" value="AND" />
-                              <el-option label="OR" value="OR" />
-                            </el-select>
-                            <el-select
-                              v-model="filter.operator"
-                              placeholder="操作符"
-                              size="small"
-                              clearable
-                              style="width: 80px"
-                              :teleported="false"
-                              @click.stop
-                              popper-class="filter-select-dropdown"
-                            >
-                              <el-option label="=" value="=" />
-                              <el-option label=">" value=">" />
-                              <el-option label="<" value="<" />
-                              <el-option label=">=" value=">=" />
-                              <el-option label="<=" value="<=" />
-                            </el-select>
-                            <el-input
-                              v-model="filter.value"
-                              placeholder="值（支持0x16进制）"
-                              size="small"
-                              style="flex: 1; min-width: 80px"
-                              @keyup.enter="() => handleFilterChange(col.prop)"
-                              @click.stop
-                            />
-                            <el-button
-                              v-if="filterInputs[`${col.prop}Filters`].length > 1"
-                              :icon="Delete"
-                              size="small"
-                              text
-                              type="danger"
-                              @click.stop="removeNumberFilter(col.prop, index)"
-                            />
-                          </div>
-                          <el-button
-                            size="small"
-                            text
-                            type="primary"
-                            style="margin-top: 8px; width: 100%"
-                            @click.stop="addNumberFilter(col.prop)"
-                          >
-                            + 添加条件
-                          </el-button>
-                        </div>
-                        <div style="margin-top: 4px; font-size: 12px; color: #909399;">
-                          支持十进制或16进制（如：123 或 0x123）
-                        </div>
-                        <div style="margin-top: 8px;">
-                          <el-button type="primary" size="small" @click="() => handleFilterChange(col.prop)" style="width: 100%">应用筛选</el-button>
-                        </div>
-                      </template>
-                      
-                      <!-- 多选/单选筛选 -->
-                      <template v-else-if="col.filterType === 'multi-select' || col.filterType === 'select'">
-                        <el-select
-                          v-model="filterInputs[col.prop]"
-                          :placeholder="`筛选${col.label}${col.filterType === 'multi-select' ? '（可多选）' : ''}`"
-                          size="small"
-                          clearable
-                          :multiple="col.filterType === 'multi-select'"
-                          collapse-tags
-                          collapse-tags-tooltip
-                          style="width: 100%"
+            <!-- 使用 vxe-table 原生筛选插槽 -->
+            <template #filter="{ column, $panel }">
+              <div class="vxe-filter-custom-panel">
+                <div class="filter-header">{{ col.label }}筛选</div>
+                
+                <div class="filter-body">
+                  <!-- 文本筛选 -->
+                  <template v-if="col.filterType === 'text'">
+                    <el-input
+                      v-model="column.filters[0].data"
+                      :placeholder="`输入关键词`"
+                      size="small"
+                      clearable
+                      @input="$panel.changeOption($event, !!column.filters[0].data, column.filters[0])"
+                      @keyup.enter="handleVxeConfirmFilter(column, $panel)"
+                    />
+                  </template>
+                  
+                  <!-- 数字筛选 -->
+                  <template v-else-if="col.filterType === 'number'">
+                    <div class="filter-number-wrapper" @mousedown.stop @mouseup.stop @click.stop>
+                      <div v-for="(item, index) in column.filters[0].data.filters" :key="index" class="number-filter-item">
+                        <el-select 
+                          v-model="item.operator" 
+                          placeholder="OP" 
+                          size="small" 
+                          style="width: 70px" 
                           :teleported="false"
-                          popper-class="filter-select-dropdown-keep-open"
-                          @change="() => col.filterType === 'multi-select' ? handleMultiSelectChange(col.prop) : handleFilterChange(col.prop)"
-                          @visible-change="(visible: boolean) => { 
-                            if (!visible && keepOpenPopovers.has(col.prop)) {
-                              nextTick(() => {
-                                popoverVisible[col.prop] = true
-                              })
-                            }
-                          }"
-                          @click.stop
+                          @change="$panel.changeOption($event, true, column.filters[0])"
                         >
-                          <el-option
-                            v-for="option in getFilterOptions(col.prop)"
-                            :key="option"
-                            :label="option"
-                            :value="option"
-                          />
+                          <el-option label="=" value="=" />
+                          <el-option label=">" value=">" />
+                          <el-option label="<" value="<" />
+                          <el-option label=">=" value=">=" />
+                          <el-option label="<=" value="<=" />
                         </el-select>
-                      </template>
-                      
-                      <!-- 日期筛选 -->
-                      <template v-else-if="col.filterType === 'date'">
                         <el-input
-                          v-model="filterInputs[col.prop]"
-                          :placeholder="col.prop === 'ts' ? '支持文本匹配：日期、时间或日期时间（按回车确认）' : 'YYYY-MM-DD（按回车确认）'"
+                          v-model="item.value"
+                          placeholder="值"
                           size="small"
-                          clearable
-                          @keyup.enter="() => handleFilterChange(col.prop)"
-                          @clear="() => handleFilterChange(col.prop)"
+                          style="flex: 1"
+                          @input="$panel.changeOption($event, true, column.filters[0])"
+                          @keyup.enter="handleVxeConfirmFilter(column, $panel)"
                         />
-                        <div v-if="col.prop === 'ts'" style="margin-top: 4px; font-size: 12px; color: #909399;">
-                          支持文本匹配：日期、时间或日期时间（如：2024-01-01、12:30:45 或 2024-01-01 12:30:45.123456）
-                        </div>
-                        <div style="margin-top: 8px;">
-                          <el-button type="primary" size="small" @click="() => handleFilterChange(col.prop)" style="width: 100%">应用筛选</el-button>
-                        </div>
-                      </template>
+                        <el-button v-if="column.filters[0].data.filters.length > 1" :icon="Delete" size="small" text type="danger" @click.stop="column.filters[0].data.filters.splice(index, 1)" />
+                      </div>
+                      <el-button size="small" text type="primary" @click.stop="column.filters[0].data.filters.push({ operator: '=', value: '' })">+ 添加条件</el-button>
+                      <div class="logic-switch" v-if="column.filters[0].data.filters.length > 1">
+                        <el-radio-group v-model="column.filters[0].data.logic" size="small" @change="$panel.changeOption($event, true, column.filters[0])">
+                          <el-radio-button label="AND">AND</el-radio-button>
+                          <el-radio-button label="OR">OR</el-radio-button>
+                        </el-radio-group>
+                      </div>
                     </div>
-                  </el-popover>
-                  <span>{{ col.label }}</span>
+                  </template>
+                  
+                  <!-- 下拉筛选 -->
+                  <template v-else-if="col.filterType === 'multi-select' || col.filterType === 'select'">
+                    <el-select
+                      v-model="column.filters[0].data"
+                      :placeholder="`请选择`"
+                      size="small"
+                      clearable
+                      :multiple="col.filterType === 'multi-select'"
+                      collapse-tags
+                      style="width: 100%"
+                      :teleported="false"
+                      @change="$panel.changeOption($event, Array.isArray(column.filters[0].data) ? column.filters[0].data.length > 0 : !!column.filters[0].data, column.filters[0])"
+                      @mousedown.stop
+                      @mouseup.stop
+                      @click.stop
+                    >
+                      <el-option
+                        v-for="option in getFilterOptions(col.prop)"
+                        :key="option"
+                        :label="option"
+                        :value="option"
+                      />
+                    </el-select>
+                  </template>
+
+                  <!-- 日期筛选 -->
+                  <template v-else-if="col.filterType === 'date'">
+                    <el-input
+                      v-model="column.filters[0].data"
+                      placeholder="YYYY-MM-DD"
+                      size="small"
+                      clearable
+                      @input="$panel.changeOption($event, !!column.filters[0].data, column.filters[0])"
+                      @keyup.enter="handleVxeConfirmFilter(column, $panel)"
+                    />
+                  </template>
+                </div>
+
+                <div class="filter-footer">
+                  <el-button type="primary" size="small" @click="handleVxeConfirmFilter(column, $panel)">确定</el-button>
+                  <el-button size="small" @click="handleVxeResetFilter(column, $panel)">重置</el-button>
                 </div>
               </div>
             </template>
+
             <template #default="{ row }">
               <template v-if="col.filterType === 'multi-select' || col.filterType === 'select'">
                 <span class="list-column-tag">
@@ -467,17 +357,21 @@ const selectedRowId = ref<number | null>(null)
 const tableRef = ref<VxeTableInstance<TableData>>()
 const filterOptions = reactive<Record<string, string[]>>({})
 
-// 动态表格 ID，用于 vxe-table 的缓存隔离
-const vxeTableId = computed(() => {
-  const tid = getTableId()
-  return tid ? `vxe_table_${tid}` : 'vxe_data_table'
-})
+// 动态表格 ID，在 mount 时固定，避免 computed 导致的潜在循环
+const vxeTableId = ref('vxe_data_table')
 
-// 表格 Key，当列结构发生变化时强制重置表格，防止缓存导致的鬼影或布局错乱
-const vxeTableKey = computed(() => {
-  const props = columnConfig.value.map(c => c.prop).join(',')
-  return `${vxeTableId.value}_${props}`
-})
+// 表格 Key，仅在列的 prop 列表真正改变时才变化
+const vxeTableKey = ref('vxe_key_initial')
+
+// 使用普通对象缓存初始化的筛选数据数组，确保引用恒定
+const initialFilterDataMap: Record<string, any[]> = {}
+
+const getInitialFilterData = (col: ColumnConfig) => {
+  if (initialFilterDataMap[col.prop]) {
+    return initialFilterDataMap[col.prop]
+  }
+  return []
+}
 
 // 行详情数据
 const rowDetails = reactive<Record<number, RowDetail>>({})
@@ -497,55 +391,6 @@ const statisticsData = ref<{ columns: string[]; rows: Record<string, string>[] }
 const dragIndex = ref<number | null>(null)
 const columnListRef = ref<HTMLElement | null>(null)
 
-const popoverVisible = reactive<Record<string, boolean>>({})
-const keepOpenPopovers = reactive<Set<string>>(new Set())
-
-const keepPopoverOpen = () => {
-  if (keepOpenPopovers.size === 0) return
-  keepOpenPopovers.forEach(prop => {
-    if (!popoverVisible[prop]) popoverVisible[prop] = true
-  })
-}
-
-let keepOpenInterval: number | null = null
-
-const handleClickOutside = (event: MouseEvent) => {
-  const target = event.target as HTMLElement
-  
-  // 如果点击的目标元素已经从 DOM 中移除，通常是因为某些组件（如清除按钮）被点击后立即消失
-  // 这种情况下我们不应该关闭弹窗，因为点击很可能发生在弹窗内部
-  if (!document.body.contains(target)) {
-    return
-  }
-
-  // 增加对弹窗内部元素的判定逻辑
-  const isInsidePopover = target.closest('.el-popover') || 
-                          target.closest('.el-select-dropdown') || 
-                          target.closest('.el-popper') ||
-                          target.closest('.el-input__inner') ||
-                          target.closest('.el-button') ||
-                          target.closest('.el-select__tags')
-                          
-  const isFilterIcon = target.closest('.filter-icon')
-  
-  if (!isInsidePopover && !isFilterIcon) {
-    Object.keys(popoverVisible).forEach(prop => {
-      popoverVisible[prop] = false
-    })
-    keepOpenPopovers.clear()
-  }
-}
-
-onMounted(() => {
-  keepOpenInterval = setInterval(keepPopoverOpen, 100) as unknown as number
-  document.addEventListener('click', handleClickOutside)
-})
-
-onUnmounted(() => {
-  if (keepOpenInterval !== null) clearInterval(keepOpenInterval)
-  document.removeEventListener('click', handleClickOutside)
-})
-
 const filterInputs = reactive<Record<string, any>>({})
 const filterForm = reactive<Record<string, any>>({})
 
@@ -563,16 +408,29 @@ const sortInfo = reactive({
 const loadColumnsConfig = async () => {
   try {
     const config = await dataApi.getColumnsConfig()
-    // 移除之前的过度优化，确保配置（包括选项）始终同步
-    columnConfig.value = config.columns
-    initFilterForm(config.columns)
     
-    // 清理失效的 popover 状态
-    Object.keys(popoverVisible).forEach(key => {
-      if (!config.columns.find((c: any) => c.prop === key)) {
-        delete popoverVisible[key]
+    // 1. 预先初始化所有列的筛选数据数组（引用级别固定）
+    config.columns.forEach((col: any) => {
+      if (!initialFilterDataMap[col.prop]) {
+        let data: any = ''
+        if (col.filterType === 'number') {
+          data = { filters: [{ operator: '=', value: '' }], logic: 'AND' }
+        } else if (col.filterType === 'multi-select') {
+          data = []
+        }
+        initialFilterDataMap[col.prop] = [{ data }]
       }
     })
+
+    // 2. 检查列结构是否真正发生变化
+    const oldProps = columnConfig.value.map(c => c.prop).join(',')
+    const newProps = config.columns.map((c: any) => c.prop).join(',')
+    
+    if (oldProps !== newProps || columnConfig.value.length === 0) {
+      columnConfig.value = config.columns
+      // 仅在结构变化时更新 Key，触发 VXE 彻底重绘
+      vxeTableKey.value = `vxe_key_${Date.now()}_${newProps.length}`
+    }
     
     await refreshFilterOptions(true)
   } catch (error) {
@@ -588,44 +446,55 @@ const loadData = async (keepSelectedRow = false, silent = false) => {
     const previousTotal = pagination.total
     const filters: FilterParams = {}
     
+    // 直接从 vxe-table 实例或 initialFilterDataMap 读取筛选状态，确保数据源统一
+    // 这样 handleVxeFilterChange 只需要触发 loadData，而不需要维护 filterForm
     columnConfig.value.forEach(col => {
       if (!col.filterable) return
       const prop = col.prop
-      switch (col.filterType) {
-        case 'number':
-          if (prop === 'id') {
-            const operator = filterForm[`${prop}Operator`]
-            const value = filterForm[`${prop}Value`]
-            if (operator && value !== undefined) filters[prop] = { operator, value }
-          } else {
-            const propFilters = filterForm[`${prop}Filters`]
-            if (Array.isArray(propFilters) && propFilters.length > 0) {
-              const validFilters = propFilters.filter((f: any) => f && f.operator && f.value !== undefined)
-              if (validFilters.length > 0) {
-                if (validFilters.length === 1) filters[prop] = validFilters[0]
-                else filters[prop] = { filters: validFilters, logic: filterForm[`${prop}Logic`] || 'AND' }
-              }
+      
+      // 获取当前列的筛选器状态
+      // 优先从 VXE 实例获取最新的（如果已经挂载），否则从初始化缓存获取
+      let option = null
+      if (tableRef.value) {
+        const column = tableRef.value.getColumnByField(prop)
+        if (column && column.filters && column.filters.length > 0) {
+          option = column.filters[0]
+        }
+      }
+      
+      // 如果 table 未准备好，从备份 Map 获取
+      if (!option && initialFilterDataMap[prop]) {
+        option = initialFilterDataMap[prop][0]
+      }
+
+      if (option && option.checked && option.data !== undefined) {
+        const data = option.data
+        if (col.filterType === 'number') {
+          if (data && typeof data === 'object' && Array.isArray(data.filters)) {
+            const validFilters = data.filters.filter((f: any) => f.operator && f.value !== '')
+            if (validFilters.length > 0) {
+              if (validFilters.length === 1) filters[prop] = validFilters[0]
+              else filters[prop] = { filters: validFilters, logic: data.logic || 'AND' }
             }
           }
-          break
-        case 'text':
-        case 'date':
-          const textValue = filterForm[prop]
-          if (textValue) filters[prop] = textValue
-          break
-        case 'multi-select':
-        case 'select':
-          const selectValue = filterForm[prop]
-          if (Array.isArray(selectValue) && selectValue.length > 0) {
-            filters[prop] = selectValue.length === 1 ? selectValue[0] : selectValue
-          } else if (selectValue !== undefined && selectValue !== null && selectValue !== '') {
-            filters[prop] = selectValue
+        } else if (col.filterType === 'multi-select' || col.filterType === 'select') {
+          if (Array.isArray(data)) {
+            if (data.length > 0) filters[prop] = data
+          } else if (data !== '' && data !== null) {
+            filters[prop] = data
           }
-          break
+        } else if (data !== '' && data !== null) {
+          filters[prop] = data
+        }
       }
     })
 
     const requestFilters = Object.keys(filters).length > 0 ? filters : undefined
+    
+    // 调试：打印发送给后端的筛选参数
+    if (requestFilters) {
+      console.log('Sending filters to backend:', JSON.stringify(requestFilters, null, 2))
+    }
     
     // 如果没有指定排序，默认按ID升序（最新的在后）
     const sortBy = sortInfo.prop || 'id'
@@ -654,6 +523,7 @@ const loadData = async (keepSelectedRow = false, silent = false) => {
     }
     
     const response = await dataApi.getList(requestParams)
+    console.log(`Received ${response.list.length} rows from backend (total: ${response.total})`)
     tableData.value = response.list
     pagination.total = response.total
     pagination.page = response.page
@@ -764,110 +634,84 @@ const handleVxeSortChange: VxeTableEvents.SortChange<TableData> = ({ property, o
   loadData(selectedRowId.value !== null)
 }
 
-const initFilterForm = (columns: ColumnConfig[]) => {
-  columns.forEach(col => {
-    if (!col.filterable) return
-    switch (col.filterType) {
-      case 'number':
-        if (col.prop === 'id') {
-          filterForm[`${col.prop}Operator`] = undefined
-          filterForm[`${col.prop}Value`] = undefined
-          filterInputs[`${col.prop}Operator`] = undefined
-          filterInputs[`${col.prop}Value`] = undefined
-        } else {
-          filterForm[`${col.prop}Filters`] = [{ operator: undefined, value: undefined }]
-          filterForm[`${col.prop}Logic`] = 'AND'
-          filterInputs[`${col.prop}Filters`] = [{ operator: undefined, value: undefined }]
-          filterInputs[`${col.prop}Logic`] = 'AND'
-        }
-        break
-      case 'multi-select':
-      case 'select':
-        const defaultValue = col.filterType === 'multi-select' ? [] : undefined
-        filterForm[col.prop] = defaultValue
-        filterInputs[col.prop] = col.filterType === 'multi-select' ? [] : undefined
-        if (col.options && col.options.length > 0) filterOptions[col.prop] = col.options
-        break
-      case 'text':
-      case 'date':
-        filterForm[col.prop] = undefined
-        filterInputs[col.prop] = undefined
-        break
-    }
-  })
+// 处理 vxe-table 原生筛选变化
+const handleVxeFilterChange: VxeTableEvents.FilterChange<TableData> = ({ column, property, values, filterList }) => {
+  // 重新加载数据，回到第一页
+  // 注意：不再需要同步到 filterForm，因为 loadData 会直接读取 VXE 的状态
+  pagination.page = 1
+  loadData(selectedRowId.value !== null)
 }
 
-const syncFilterInputsToForm = () => {
-  Object.keys(filterInputs).forEach(key => {
-    const value = filterInputs[key]
-    if (Array.isArray(value)) {
-      if (key.endsWith('Filters')) filterForm[key] = value.map((f: any) => ({ ...f }))
-      else filterForm[key] = [...value]
-    } else filterForm[key] = value
-  })
-}
-
-const handleFilterChange = (prop?: string) => {
-  syncFilterInputsToForm()
-  nextTick(() => {
-    loadData(true)
-    if (prop) {
-      keepOpenPopovers.delete(prop)
-      popoverVisible[prop] = false
-    }
-  })
-}
-
-const handleMultiSelectChange = (prop: string) => {
-  keepOpenPopovers.add(prop)
-  popoverVisible[prop] = true
-  syncFilterInputsToForm()
-  nextTick(() => {
-    popoverVisible[prop] = true
-    loadData(true)
-  })
-  setTimeout(() => { popoverVisible[prop] = true }, 50)
-}
-
-const isMultiNumberFilter = (prop: string) => prop !== 'id'
-
-const addNumberFilter = (prop: string) => {
-  const filtersKey = `${prop}Filters`
-  if (!Array.isArray(filterInputs[filtersKey])) filterInputs[filtersKey] = []
-  filterInputs[filtersKey].push({ operator: undefined, value: undefined })
-}
-
-const removeNumberFilter = (prop: string, index: number) => {
-  const filtersKey = `${prop}Filters`
-  if (Array.isArray(filterInputs[filtersKey])) {
-    filterInputs[filtersKey].splice(index, 1)
-    if (filterInputs[filtersKey].length === 0) addNumberFilter(prop)
+// 核心修复：手动控制 vxe-table 筛选器的激活状态
+const handleVxeConfirmFilter = (column: any, $panel: any) => {
+  const option = column.filters[0]
+  if (!option) return
+  
+  const data = option.data
+  const col = columnConfig.value.find(c => c.prop === column.field)
+  
+  let isChecked = false
+  if (col?.filterType === 'number') {
+    isChecked = data && typeof data === 'object' && Array.isArray(data.filters) && 
+                data.filters.some((f: any) => f.operator && f.value !== '' && f.value !== null && f.value !== undefined)
+  } else if (col?.filterType === 'multi-select' || col?.filterType === 'select') {
+    isChecked = Array.isArray(data) ? data.length > 0 : (data !== null && data !== '' && data !== undefined)
+  } else {
+    isChecked = data !== null && data !== '' && data !== undefined
+  }
+  
+  // 必须设置 checked 属性，VXE 才会将其包含在 filterList 中
+  option.checked = isChecked
+  
+  // 使用推荐的 saveFilterPanelByEvent
+  if ($panel.saveFilterPanelByEvent) {
+    $panel.saveFilterPanelByEvent(new Event('confirm'))
+  } else {
+    $panel.confirmFilter()
   }
 }
 
-const handleReset = () => {
-  columnConfig.value.forEach(col => {
+const handleVxeResetFilter = (column: any, $panel: any) => {
+  const option = column.filters[0]
+  if (!option) return
+  
+  const col = columnConfig.value.find(c => c.prop === column.field)
+  
+  // 恢复初始数据结构
+  if (col?.filterType === 'number') {
+    option.data = { filters: [{ operator: '=', value: '' }], logic: 'AND' }
+  } else if (col?.filterType === 'multi-select' || col?.filterType === 'select') {
+    option.data = Array.isArray(option.data) ? [] : ''
+  } else {
+    option.data = ''
+  }
+  
+  option.checked = false
+  
+  // 使用推荐方式重置
+  if ($panel.resetFilter) {
+    $panel.resetFilter()
+  } else {
+    $panel.confirmFilter()
+  }
+}
+
+const initFilterForm = (columns: ColumnConfig[]) => {
+  // VXE 模式下，主要通过原生筛选器管理状态，这里仅作备份
+  columns.forEach(col => {
     if (!col.filterable) return
-    const prop = col.prop
-    switch (col.filterType) {
-      case 'number':
-        if (prop === 'id') {
-          filterInputs[`${prop}Operator`] = undefined
-          filterInputs[`${prop}Value`] = undefined
-        } else {
-          filterInputs[`${prop}Filters`] = [{ operator: undefined, value: undefined }]
-          filterInputs[`${prop}Logic`] = 'AND'
-        }
-        break
-      case 'multi-select':
-        filterInputs[prop] = []
-        break
-      default:
-        filterInputs[prop] = undefined
-        break
+    if (col.filterType === 'multi-select' || col.filterType === 'select') {
+      if (!filterOptions[col.prop]) {
+        filterOptions[col.prop] = col.options || []
+      }
     }
   })
-  syncFilterInputsToForm()
+}
+
+const handleReset = () => {
+  if (tableRef.value) {
+    tableRef.value.clearFilter()
+  }
   sortInfo.prop = 'id'
   sortInfo.order = 'ascending'
   loadData(true)
@@ -983,6 +827,10 @@ const exposedMethods = {
 defineExpose(exposedMethods)
 
 onMounted(async () => {
+  // 初始化 ID
+  const tid = getTableId()
+  vxeTableId.value = tid ? `vxe_table_${tid}` : 'vxe_data_table'
+  
   await loadColumnsConfig()
   await loadData()
   
@@ -1096,6 +944,47 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: help;
+}
+
+/* VXE 原生筛选面板样式定制 */
+.vxe-filter-custom-panel {
+  background-color: #fff;
+  padding: 12px;
+  min-width: 240px;
+  border-radius: 4px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+}
+
+.filter-header {
+  font-weight: 600;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.filter-body {
+  margin-bottom: 12px;
+}
+
+.filter-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.number-filter-item {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+
+.logic-switch {
+  margin-top: 8px;
+  display: flex;
+  justify-content: center;
 }
 
 .list-column-tag {
