@@ -110,16 +110,12 @@ def main_page():
                         data_state['df_source'] = await asyncio.to_thread(update_local_df)
                         
                     except Exception as e:
-                        print(f"添加数据出错: {e}")
+                        logger.error(f"添加数据出错: {e}")
                         return
                     
                     # 更新状态显示
                     total_count = len(data_state['df_source'])
                     status_label.text = f'状态：运行中（已添加 {total_count} 条）'
-                    
-                    # 每10000行记录一次状态（用于调试）
-                    if total_count % 10000 == 0:
-                        logger.info(f"数据量达到 {total_count} 行")
                     
                     # 防抖机制：根据数据量调整刷新频率
                     current_time = time.time()
@@ -235,16 +231,6 @@ def main_page():
                     if result.get('structure_updated'):
                         table.refresh_columns()
                     table.refresh_data()
-                    
-                    # 打印详细信息到控制台
-                    print(f"\n{'='*60}")
-                    print("列顺序测试结果:")
-                    print(f"  原始顺序: {original_order}")
-                    print(f"  新顺序:   {new_order}")
-                    print(f"  DataFrame列顺序: {df_order}")
-                    print(f"  配置列顺序:      {config_order}")
-                    print(f"  是否一致: {'✓ 是' if is_correct else '✗ 否'}")
-                    print(f"{'='*60}\n")
                 
                 test_column_order_btn.on('click', test_column_order)
                 
@@ -277,14 +263,6 @@ def main_page():
                         column_order_info.text = f'✗ 列顺序不一致！\nDataFrame: {df_order[:5]}...\n配置: {config_order[:5]}...'
                         column_order_info.classes('text-red-300 text-xs max-w-md')
                         ui.notify(f'列顺序不一致！\nDataFrame: {df_order}\n配置: {config_order}', type='warning', timeout=5000)
-                    
-                    # 打印详细信息
-                    print(f"\n{'='*60}")
-                    print("当前列顺序:")
-                    print(f"  DataFrame列顺序: {df_order}")
-                    print(f"  配置列顺序:      {config_order}")
-                    print(f"  是否一致: {'✓ 是' if is_consistent else '✗ 否'}")
-                    print(f"{'='*60}\n")
                 
                 show_order_btn.on('click', show_column_order)
 

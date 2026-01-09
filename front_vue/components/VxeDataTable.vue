@@ -265,9 +265,8 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, onUnmounted, nextTick, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Search, Refresh, Delete, Setting, ArrowDown, ArrowUp, Sort, Filter, ArrowLeft, ArrowRight, DataAnalysis } from '@element-plus/icons-vue'
-import { TableData, FilterParams, NumberFilter, RowDetail, ColumnConfig } from '../types'
-import type { FormInstance } from 'element-plus'
+import { Search, Refresh, Delete, Setting, ArrowLeft, ArrowRight, DataAnalysis } from '@element-plus/icons-vue'
+import { TableData, FilterParams, RowDetail, ColumnConfig } from '../types'
 import type { VxeTableInstance, VxeTableEvents } from 'vxe-table'
 import axios from 'axios'
 
@@ -389,13 +388,6 @@ const columnWidths = reactive<Record<string, number>>({})
 const showStatisticsDialog = ref(false)
 const statisticsLoading = ref(false)
 const statisticsData = ref<{ columns: string[]; rows: Record<string, string>[] }>({ columns: [], rows: [] })
-
-// 拖拽相关
-const dragIndex = ref<number | null>(null)
-const columnListRef = ref<HTMLElement | null>(null)
-
-const filterInputs = reactive<Record<string, any>>({})
-const filterForm = reactive<Record<string, any>>({})
 
 const pagination = reactive({
   page: 1,
@@ -639,21 +631,8 @@ const handleVxeSortChange: VxeTableEvents.SortChange<TableData> = ({ property, o
 // 处理 vxe-table 原生筛选变化
 const handleVxeFilterChange: VxeTableEvents.FilterChange<TableData> = ({ column, property, values, filterList }) => {
   // 重新加载数据，回到第一页
-  // 注意：不再需要同步到 filterForm，因为 loadData 会直接读取 VXE 的状态
   pagination.page = 1
   loadData(selectedRowId.value !== null)
-}
-
-const initFilterForm = (columns: ColumnConfig[]) => {
-  // VXE 模式下，主要通过原生筛选器管理状态，这里仅作备份
-  columns.forEach(col => {
-    if (!col.filterable) return
-    if (col.filterType === 'multi-select' || col.filterType === 'select') {
-      if (!filterOptions[col.prop]) {
-        filterOptions[col.prop] = col.options || []
-      }
-    }
-  })
 }
 
 const handleReset = () => {
@@ -686,13 +665,6 @@ const handleSizeChange = (size: number) => {
 }
 
 const getColumnWidth = (col: ColumnConfig) => columnWidths[col.prop] || col.width || null
-
-const hasActiveFilter = (prop: string) => {
-  if (!tableRef.value) return false
-  const column = tableRef.value.getColumnByField(prop)
-  if (!column || !column.filters) return false
-  return column.filters.some(option => option.checked)
-}
 
 const getFilterOptions = (prop: string) => {
   // 优先使用动态加载的选项
@@ -832,36 +804,6 @@ onMounted(async () => {
   position: relative;
 }
 
-.column-header {
-  display: flex;
-  flex-direction: column;
-}
-
-.header-title-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.filter-icon {
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.filter-icon:hover {
-  color: #409eff !important;
-}
-
-.filter-popover {
-  padding: 4px 0;
-}
-
-.filter-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 .expand-detail {
   padding: 8px;
   background-color: #f5f7fa;
@@ -876,30 +818,6 @@ onMounted(async () => {
   text-align: center;
   padding: 20px;
   color: #909399;
-}
-
-.column-settings-content {
-  max-height: 500px;
-  overflow-y: auto;
-}
-
-.column-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.column-item {
-  padding: 8px 12px;
-  border: 1px solid #e4e7ed;
-  border-radius: 4px;
-  background-color: #fff;
-}
-
-.column-item-content {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .bytes-display {

@@ -202,38 +202,30 @@ class DataTable:
         if isinstance(filters, dict):
             return filters
             
-        # 调试日志
-        self._logger.info(f"Building filter dict from object: {type(filters)}")
-        
         res = {}
         
         # 1. 尝试使用 Pydantic v2 的 model_dump
         if hasattr(filters, 'model_dump'):
             try:
                 res.update(filters.model_dump(exclude_none=True))
-            except Exception as e:
-                self._logger.error(f"model_dump failed: {e}")
+            except Exception:
+                pass
         # 尝试使用 Pydantic v1 的 dict
         elif hasattr(filters, 'dict'):
             try:
                 res.update(filters.dict(exclude_none=True))
-            except Exception as e:
-                self._logger.error(f"dict() failed: {e}")
+            except Exception:
+                pass
         
         # 2. 关键：获取 Pydantic v2 的额外字段 (extra="allow")
         if hasattr(filters, 'model_extra') and filters.model_extra:
-            self._logger.info(f"Adding model_extra: {filters.model_extra}")
             res.update(filters.model_extra)
             
         # 3. 兜底方案：从 __dict__ 中提取非私有属性
-        # 有些情况下，额外字段可能直接挂在 __dict__ 上
         for k, v in filters.__dict__.items():
             if k not in res and not k.startswith('_') and k != 'model_config' and k != 'model_fields':
                 res[k] = v
         
-        if res:
-            self._logger.info(f"Final filter dict: {res}")
-            
         return res
     
     def _update_column_options(self, force: bool = False) -> bool:
@@ -290,27 +282,21 @@ class DataTable:
         
         # 获取筛选参数字典
         filter_dict = self._get_filter_dict(filters)
-        self._logger.info(f"Applying filters: {filter_dict}")
         
         # 遍历所有筛选字段（包括动态字段和旧字段）
         for field_name, filter_value in filter_dict.items():
             
             # 检查字段是否存在于DataFrame中
             if field_name not in target_df.columns:
-                self._logger.warning(f"Filter field {field_name} not found in DataFrame columns")
                 continue
             
             # 查找对应的列配置
             col_config = next((c for c in self.columns_config if c.prop == field_name), None)
             if not col_config:
-                self._logger.warning(f"Filter field {field_name} has no column config")
                 continue
                 
             if not col_config.filterable:
-                self._logger.warning(f"Filter field {field_name} is marked as not filterable")
                 continue
-            
-            self._logger.info(f"Processing filter for {field_name}: type={col_config.filterType}, value={filter_value}")
             
             # 根据筛选类型处理
             if col_config.filterType == 'number':
@@ -382,101 +368,27 @@ class DataTable:
                  page_size: int = 100,
                  sort_by: Optional[str] = None,
                  sort_order: Optional[str] = None) -> Dict[str, Any]:
-        """获取数据列表（支持筛选、分页、排序）
-        
-        Args:
-            filters: 筛选条件
-            page: 页码
-            page_size: 每页大小
-            sort_by: 排序字段
-            sort_order: 排序方向 ('ascending' 或 'descending')
-        
-        Returns:
-            包含list、total、page、pageSize的字典
-        """
+        """获取数据列表（支持筛选、分页、排序）"""
         # 使用锁保护读取，并创建dataframe快照以确保操作的一致性
         with self._lock:
             current_df = self.dataframe
-            # 如果 dataframe 是 None (虽然初始化检查过，但为了安全)
             if current_df is None:
-                self._logger.error("DataFrame 未初始化 or None")
                 return {
-                    "list": [],
-                    "total": 0,
-                    "page": page,
-                    "pageSize": page_size
+                    "list": [], "total": 0, "page": page, "pageSize": page_size
                 }
-        
-        # 以下操作使用 current_df 快照，无需持有锁（除非涉及到其他共享状态）
-        # 注意：current_df 是一个引用，如果 add_data 替换了 self.dataframe，current_df 指向旧对象，这是安全的。
         
         if current_df.empty:
             return {
-                "list": [],
-                "total": 0,
-                "page": page,
-                "pageSize": page_size
+                "list": [], "total": 0, "page": page, "pageSize": page_size
             }
         
-        # 验证 DataFrame 的完整性（防止数据被意外清空）
-        dataframe_length = len(current_df)
-        
-        # 记录当前长度（用于下次验证）- 注意：写入 _last_known_length 也应该是线程安全的，但这里只是用于日志，暂不加锁
-        if not hasattr(self, '_last_known_length'):
-            self._last_known_length = dataframe_length
-        
-        if dataframe_length == 0 and self._last_known_length > 0:
-            self._logger.critical(
-                f"🚨 检测到 DataFrame 被意外清空！上次已知长度: {self._last_known_length}, "
-                f"当前长度: {dataframe_length}. 这会导致表格显示为空！"
-            )
-        elif dataframe_length < self._last_known_length and self._last_known_length > 100:
-            self._logger.warning(
-                f"⚠️ 数据量异常减少: 从 {self._last_known_length} 减少到 {dataframe_length}, "
-                f"减少了 {self._last_known_length - dataframe_length} 行"
-            )
-        
-        # 更新记录的长度
-        if dataframe_length > 0:
-            self._last_known_length = dataframe_length
-        
         try:
-            # 记录开始时间（用于性能监控）
-            import time as time_module
-            start_time = time_module.time()
-            
-            # 构建筛选条件 - 传入 current_df
+            # 构建筛选条件
             mask = self._build_pandas_filter(filters, df=current_df)
-            
-            # 检查 mask 是否有效
-            if len(mask) != len(current_df):
-                self._logger.warning(
-                    f"筛选掩码长度不匹配: mask={len(mask)}, dataframe={len(current_df)}. "
-                    f"DataFrame索引: {current_df.index.tolist()[:10] if len(current_df) > 0 else 'empty'}, "
-                    f"Mask索引: {mask.index.tolist()[:10] if len(mask) > 0 else 'empty'}"
-                )
-                mask = pd.Series([True] * len(current_df), index=current_df.index)
             
             # 确保 mask 的索引与 dataframe 的索引匹配
             if not mask.index.equals(current_df.index):
-                self._logger.warning(
-                    f"筛选掩码索引不匹配: 重新对齐索引. "
-                    f"DataFrame索引范围: {current_df.index.min() if len(current_df) > 0 else 'N/A'} - "
-                    f"{current_df.index.max() if len(current_df) > 0 else 'N/A'}, "
-                    f"Mask索引范围: {mask.index.min() if len(mask) > 0 else 'N/A'} - "
-                    f"{mask.index.max() if len(mask) > 0 else 'N/A'}"
-                )
                 mask = pd.Series([True] * len(current_df), index=current_df.index)
-            
-            # 检查筛选后的数据量（用于调试）
-            filtered_count = int(mask.sum()) if hasattr(mask, 'sum') else len(mask[mask])
-            filter_info = self._get_filter_dict(filters) if filters else {}
-            
-            if filtered_count == 0 and len(current_df) > 0:
-                self._logger.warning(
-                    f"⚠️ 筛选后数据为空！原始数据量: {len(current_df)}, "
-                    f"筛选条件: {filter_info}. 这可能导致表格显示为空！"
-                )
             
             # 使用视图而不是copy，提高性能（在筛选时）
             filtered_df = current_df[mask]
@@ -484,81 +396,49 @@ class DataTable:
             # 检查是否需要排序
             needs_sort = sort_by and sort_by in filtered_df.columns
             
-            # 计算总数（在排序前，避免不必要的计算）
+            # 计算总数
             total_count = len(filtered_df)
             
-            # 排序（如果需要）
+            # 排序
             if needs_sort:
                 ascending = sort_order == 'ascending' if sort_order else True
-                # 排序时需要copy，因为会修改数据
-                filtered_df = filtered_df.sort_values(by=sort_by, ascending=ascending, na_position='last').copy()
+                filtered_df = filtered_df.sort_values(by=sort_by, ascending=ascending, na_position='last')
             
             # 分页
             start_index = (page - 1) * page_size
             end_index = start_index + page_size
             
-            # 确保索引范围有效
             if start_index >= total_count:
-                # 请求的页面超出范围，返回空 DataFrame
                 paginated_df = pd.DataFrame(columns=current_df.columns)
             else:
-                # 确保 end_index 不超过总数
                 end_index = min(end_index, total_count)
-                # 只有在需要时才copy（如果已经copy过，这里就不需要再copy）
-                if needs_sort:
-                    paginated_df = filtered_df.iloc[start_index:end_index]
-                else:
-                    paginated_df = filtered_df.iloc[start_index:end_index].copy()
+                paginated_df = filtered_df.iloc[start_index:end_index]
             
-            # 记录性能信息（仅在大数据量时）
-            elapsed_time = time_module.time() - start_time
-            if elapsed_time > 0.5 or len(current_df) > 5000:
-                self._logger.debug(
-                    f"get_list 性能: 数据量={len(current_df)}, 筛选后={total_count}, "
-                    f"分页={page}/{page_size}, 耗时={elapsed_time:.3f}秒"
-                )
+            # 将DataFrame转换为字典列表
+            data_list = paginated_df.to_dict('records')
+            
+            # 处理特殊类型字段的转换
+            for record in data_list:
+                for key, value in record.items():
+                    if isinstance(value, bytes):
+                        record[key] = self._bytes_to_hex(value)
+                    elif key == 'ts' and isinstance(value, (int, float)):
+                        record[key] = self._timestamp_to_str(value)
+            
+            return {
+                "list": data_list,
+                "total": total_count,
+                "page": page,
+                "pageSize": page_size
+            }
         except Exception as e:
-            # 如果处理失败，记录错误并返回空结果
-            dataframe_length = len(current_df) if current_df is not None else 'N/A'
-            self._logger.error(
-                f"get_list 处理失败: {str(e)}, dataframe长度={dataframe_length}, "
-                f"dataframe是否为空={current_df.empty if current_df is not None else 'N/A'}, "
-                f"筛选条件={self._get_filter_dict(filters)}",
-                exc_info=True
-            )
-            # 如果 DataFrame 为空或不存在，返回空结果
-            if current_df is None or current_df.empty:
-                return {
-                    "list": [],
-                    "total": 0,
-                    "page": page,
-                    "pageSize": page_size
-                }
-            # 返回空 DataFrame，但保持正确的总数（用于分页显示）
-            paginated_df = pd.DataFrame(columns=current_df.columns)
-            # 尝试获取实际总数，如果失败则使用0
-            try:
-                total_count = len(current_df)
-            except:
-                total_count = 0
-        
-        # 将DataFrame转换为字典列表
-        data_list = paginated_df.to_dict('records')
-        
-        # 处理特殊类型字段的转换
-        for record in data_list:
-            for key, value in record.items():
-                if isinstance(value, bytes):
-                    record[key] = self._bytes_to_hex(value)
-                elif key == 'ts' and isinstance(value, (int, float)):
-                    record[key] = self._timestamp_to_str(value)
-        
-        return {
-            "list": data_list,
-            "total": total_count,
-            "page": page,
-            "pageSize": page_size
-        }
+            self._logger.error(f"get_list 处理失败: {str(e)}", exc_info=True)
+            return {
+                "list": [],
+                "total": 0,
+                "page": page,
+                "pageSize": page_size
+            }
     
     def get_columns_config(self) -> Dict[str, Any]:
         """获取列配置信息
@@ -946,25 +826,7 @@ class DataTable:
                 # 所有验证通过后，才更新 self.dataframe
                 self.dataframe = combined_df
                 
-                # 记录添加数据的信息
-                self._logger.info(
-                    f"add_data 成功: 添加了 {len(new_df)} 行, "
-                    f"原始数据量={original_length}, 新数据量={len(self.dataframe)}"
-                )
-                
             except Exception as e:
-                current_length = len(self.dataframe) if hasattr(self, 'dataframe') and self.dataframe is not None else 'N/A'
-                self._logger.error(
-                    f"添加数据失败: {str(e)}, 当前数据量={current_length}, "
-                    f"新数据量={len(new_df)}, 原始数据量={original_length}",
-                    exc_info=True
-                )
-                # 确保在异常情况下，dataframe 没有被破坏
-                if not hasattr(self, 'dataframe') or self.dataframe is None or len(self.dataframe) < original_length:
-                    self._logger.critical(
-                        f"检测到 DataFrame 可能被破坏！原始数据量: {original_length}, "
-                        f"当前数据量: {current_length}. 这可能导致数据丢失！"
-                    )
                 raise
             
             # 更新列配置中的筛选选项

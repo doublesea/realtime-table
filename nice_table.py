@@ -146,15 +146,11 @@ class NiceTable(ui.element):
         js_code = f"""
             const inst = window.__nice_table_registry && window.__nice_table_registry['{self.uid}'];
             if (inst && inst.refreshData) {{
-                console.log('Calling refreshData for {self.uid}');
                 try {{
                     inst.refreshData();
                 }} catch (err) {{
                     console.error('Error calling refreshData:', err);
                 }}
-            }} else {{
-                console.warn('NiceTable instance not found or refreshData missing for {self.uid}', inst);
-                console.log('Available instances:', Object.keys(window.__nice_table_registry || {{}}));
             }}
         """
         
@@ -314,7 +310,6 @@ class NiceTable(ui.element):
                 
                 import('{js_url}')
                     .then(() => {{
-                        console.log('Vue app loaded for {self.uid}');
                         // 等待一下让 Vue 应用完全初始化
                         setTimeout(() => bindExpose(), 500);
                     }})
@@ -325,11 +320,9 @@ class NiceTable(ui.element):
             window.addEventListener('nice-table-ready', (event) => {{
                 const detail = event.detail;
                 if (detail && detail.tableId === '{self.uid}') {{
-                    console.log('NiceTable instance ready event received:', detail.tableId);
                     // 检查注册表
                     const exposed = window.__nice_table_registry && window.__nice_table_registry['{self.uid}'];
                     if (exposed) {{
-                        console.log('NiceTable exposed instance found:', exposed);
                         // 主动触发一次刷新，确保数据加载
                         if (exposed.refreshData) {{
                             setTimeout(() => exposed.refreshData(), 100);
@@ -347,7 +340,6 @@ class NiceTable(ui.element):
                 pollCount++;
                 const exposed = window.__nice_table_registry && window.__nice_table_registry['{self.uid}'];
                 if (exposed) {{
-                    console.log('NiceTable exposed instance found via polling:', exposed);
                     if (exposed.refreshData) {{
                         setTimeout(() => exposed.refreshData(), 100);
                     }}
