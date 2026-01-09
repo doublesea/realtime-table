@@ -589,6 +589,42 @@ class DataTable:
             "columns": columns_list
         }
     
+    def get_statistics(self) -> Dict[str, Any]:
+        """获取数据统计信息
+        
+        Returns:
+            包含统计数据的字典（行列格式）
+        """
+        with self._lock:
+            current_df = self.dataframe
+            columns_config = self.columns_config
+            
+        total_rows = len(current_df)
+        total_columns = len(columns_config)
+        
+        # 获取列名列表
+        column_names = [col.label for col in columns_config]
+        
+        # 获取可筛选列数量
+        filterable_columns = sum(1 for col in columns_config if col.filterable)
+        
+        # 获取可排序列数量
+        sortable_columns = sum(1 for col in columns_config if col.sortable)
+        
+        # 构建统计数据
+        statistics_data = {
+            "columns": ["统计项", "值", "描述"],
+            "rows": [
+                {"统计项": "总行数", "值": str(total_rows), "描述": "数据表中的总记录数"},
+                {"统计项": "总列数", "值": str(total_columns), "描述": "数据表中的总列数"},
+                {"统计项": "可筛选列数", "值": str(filterable_columns), "描述": "支持筛选功能的列数"},
+                {"统计项": "可排序列数", "值": str(sortable_columns), "描述": "支持排序功能的列数"},
+                {"统计项": "列名列表", "值": ", ".join(column_names[:5]) + ("..." if len(column_names) > 5 else ""), "描述": "所有列的名称"},
+            ]
+        }
+        
+        return statistics_data
+    
     def get_row_position(self, 
                          row_id: Any, 
                          filters: Optional['FilterParams'] = None,

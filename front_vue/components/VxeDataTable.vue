@@ -65,13 +65,20 @@
           <template #content="{ row }">
             <div class="expand-detail" v-loading="rowDetailsLoading[row.id]">
               <template v-if="rowDetails[row.id] && rowDetails[row.id].length > 0">
-                <vxe-table :data="rowDetails[row.id]" border size="small" style="width: fit-content; max-width: 100%">
+                <vxe-table 
+                  :data="rowDetails[row.id]" 
+                  border 
+                  size="mini" 
+                  style="width: fit-content; max-width: 100%"
+                  show-overflow="ellipsis"
+                  show-header-overflow="ellipsis"
+                >
                   <vxe-column 
                     v-for="column in getDetailColumns(rowDetails[row.id])" 
                     :key="column.prop"
                     :field="column.prop" 
                     :title="column.label" 
-                    :min-width="column.minWidth || 150"
+                    :min-width="column.minWidth || 100"
                   >
                     <template #default="{ row: detailRow }">
                       <span :class="column.class">{{ detailRow[column.prop] ?? '-' }}</span>
@@ -856,12 +863,12 @@ onMounted(async () => {
 }
 
 .expand-detail {
-  padding: 16px;
+  padding: 8px;
   background-color: #f5f7fa;
   border-radius: 4px;
-  min-height: 100px;
+  min-height: 60px;
   width: fit-content;
-  max-width: calc(100% - 32px);
+  max-width: calc(100% - 16px);
 }
 
 .loading-message,
@@ -1011,11 +1018,12 @@ onMounted(async () => {
 }
 
 :deep(.vxe-table--render-default .vxe-body--column.col--ellipsis) {
-  height: 28px;
+  height: 24px;
 }
 :deep(.vxe-table--render-default .vxe-cell) {
   padding-top: 0;
   padding-bottom: 0;
+  line-height: 24px;
 }
 
 /* 将过滤按钮移动到左边 */

@@ -498,32 +498,7 @@ class NiceTable(ui.element):
         async def statistics(request: Request):
             """获取数据统计信息（行列可扩展格式）"""
             inst = get_target_instance(request)
-            
-            # 获取基础统计信息
-            total_rows = len(inst.logic.dataframe)
-            total_columns = len(inst.logic.columns_config)
-            
-            # 获取列名列表
-            column_names = [col.label for col in inst.logic.columns_config]
-            
-            # 获取可筛选列数量
-            filterable_columns = sum(1 for col in inst.logic.columns_config if col.filterable)
-            
-            # 获取可排序列数量
-            sortable_columns = sum(1 for col in inst.logic.columns_config if col.sortable)
-            
-            # 构建统计数据（行列可扩展格式）
-            statistics_data = {
-                "columns": ["统计项", "值", "描述"],
-                "rows": [
-                    {"统计项": "总行数", "值": str(total_rows), "描述": "数据表中的总记录数"},
-                    {"统计项": "总列数", "值": str(total_columns), "描述": "数据表中的总列数"},
-                    {"统计项": "可筛选列数", "值": str(filterable_columns), "描述": "支持筛选功能的列数"},
-                    {"统计项": "可排序列数", "值": str(sortable_columns), "描述": "支持排序功能的列数"},
-                    {"统计项": "列名列表", "值": ", ".join(column_names[:5]) + ("..." if len(column_names) > 5 else ""), "描述": "所有列的名称"},
-                ]
-            }
-            
+            statistics_data = inst.logic.get_statistics()
             return {'success': True, 'data': statistics_data}
 
         app.include_router(router)
