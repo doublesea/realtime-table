@@ -49,7 +49,7 @@
         show-overflow="ellipsis"
         show-header-overflow="ellipsis"
         :row-config="{ isHover: true, isCurrent: true, keyField: 'id' }"
-        :column-config="{ resizable: true, fit: true }"
+        :column-config="{ resizable: true }"
         :custom-config="{ storage: true, immediate: true }"
         :toolbar-config="{ custom: true }"
         :scroll-y="{ enabled: true, gt: 0 }"
@@ -105,8 +105,8 @@
             :field="col.prop"
             :title="col.label"
             :min-width="col.minWidth || 120"
-            :width="getColumnWidth(col)"
-            :fixed="col.fixed"
+            :width="getColumnWidth(col) || undefined"
+            :fixed="(col.fixed as any)"
             :sortable="col.sortable"
             :visible="col.prop !== 'id'"
             :filters="col.filterable && col.filterType !== 'none' ? getInitialFilterData(col) : []"
@@ -273,10 +273,12 @@ import axios from 'axios'
 // Props definition
 const props = defineProps<{
   apiUrl: string
+  tableId?: string
 }>()
 
-// 获取 tableId 从 DOM
+// 获取 tableId
 const getTableId = (): string | null => {
+  if (props.tableId) return props.tableId
   const root = document.getElementById('root')
   return root?.dataset.tableId || null
 }
@@ -629,7 +631,7 @@ const handleVxeSortChange: VxeTableEvents.SortChange<TableData> = ({ property, o
 }
 
 // 处理 vxe-table 原生筛选变化
-const handleVxeFilterChange: VxeTableEvents.FilterChange<TableData> = ({ column, property, values, filterList }) => {
+const handleVxeFilterChange: VxeTableEvents.FilterChange<TableData> = () => {
   // 重新加载数据，回到第一页
   pagination.page = 1
   loadData(selectedRowId.value !== null)

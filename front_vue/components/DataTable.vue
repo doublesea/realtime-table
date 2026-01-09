@@ -431,10 +431,12 @@ import axios from 'axios'
 // Props definition
 const props = defineProps<{
   apiUrl: string
+  tableId?: string
 }>()
 
-// 获取 tableId 从 DOM
+// 获取 tableId
 const getTableId = (): string | null => {
+  if (props.tableId) return props.tableId
   const root = document.getElementById('root')
   return root?.dataset.tableId || null
 }

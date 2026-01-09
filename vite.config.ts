@@ -9,7 +9,7 @@ export default defineConfig({
       '@': resolve(__dirname, 'front_vue')
     }
   },
-  base: '/static/', // 静态资源基础路径，用于 NiceGUI 嵌入
+  base: './', // 使用相对路径，增加嵌入灵活性
   server: {
     port: 3000,
     proxy: {

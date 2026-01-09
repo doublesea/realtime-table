@@ -52,15 +52,15 @@ class NiceTable(ui.element):
         css_path = css_match.group(1)
         js_path = js_match.group(1)
         
-        # 移除前导斜杠（如果有）
-        css_path = css_path.lstrip('/')
-        js_path = js_path.lstrip('/')
+        # 移除前导斜杠并处理相对路径
+        css_path = css_path.lstrip('/').replace('./', '')
+        js_path = js_path.lstrip('/').replace('./', '')
         
-        # 如果路径以 static/ 开头，去掉它（因为挂载的是 dist 目录，不是 dist/static）
+        # 再次确保去掉了 static/ (如果 base 还是旧的)
         if css_path.startswith('static/'):
-            css_path = css_path[7:]  # 去掉 'static/' (7个字符)
+            css_path = css_path[7:]
         if js_path.startswith('static/'):
-            js_path = js_path[7:]  # 去掉 'static/' (7个字符)
+            js_path = js_path[7:]
         
         return css_path, js_path
 
@@ -270,15 +270,14 @@ class NiceTable(ui.element):
                     if (typeof url === 'string' && (url.includes('/list') || url.includes('/columns') || url.includes('/filters') || url.includes('/row-') || url.includes('/add') || url.includes('/statistics'))) {{
                         options = options || {{}};
                         options.headers = options.headers || {{}};
-                        // 尝试查找当前页面上的 table-id
-                        const root = document.getElementById('root');
-                        if (root && root.dataset.tableId && !options.headers['x-table-id']) {{
-                            if (options.headers instanceof Headers) {{
-                                options.headers.append('x-table-id', root.dataset.tableId);
-                            }} else {{
-                                options.headers['x-table-id'] = root.dataset.tableId;
-                            }}
+                        
+                        // 尝试从最近的 container 中查找 table-id
+                        let tableId = null;
+                        if (options.headers['x-table-id']) {{
+                            tableId = options.headers['x-table-id'];
                         }}
+                        
+                        // 如果没有 tableId，不做处理，让 Axios 拦截器或其他逻辑处理
                     }}
                     return originalFetch(url, options);
                 }};
@@ -290,28 +289,29 @@ class NiceTable(ui.element):
                     requestAnimationFrame(mountApp_{self.uid});
                     return;
                 }}
-                let root = container.querySelector('#root');
+                let root = container.querySelector('.nice-table-root');
                 if (!root) {{
                     root = document.createElement('div');
-                    root.id = 'root';
+                    root.className = 'nice-table-root';
                     root.style.width = '100%';
                     root.style.height = '100%';
-                    
-                // 注入实例配置，供 React/Vue 应用读取
-                // 注意：由于是同一个 JS 包，我们不能用全局变量覆盖，而是挂载到 DOM 上
-                root.dataset.tableId = '{self.uid}';
-                root.dataset.defaultVersion = '{ "vxe" if self.use_vxe else "element" }';
-                
-                container.appendChild(root);
-                }} else {{
-                    // 如果 root 已存在，确保 tableId 已设置
-                    root.dataset.tableId = '{self.uid}';
+                    container.appendChild(root);
                 }}
                 
                 import('{js_url}')
-                    .then(() => {{
-                        // 等待一下让 Vue 应用完全初始化
-                        setTimeout(() => bindExpose(), 500);
+                    .then((module) => {{
+                        const mount = module.mountTable || window.mountNiceTable;
+                        if (mount) {{
+                            mount(root, {{
+                                tableId: '{self.uid}',
+                                defaultVersion: '{ "vxe" if self.use_vxe else "element" }',
+                                apiUrl: ''
+                            }});
+                            // 等待一下让 Vue 应用完全初始化
+                            setTimeout(() => bindExpose(), 500);
+                        }} else {{
+                            console.error('找不到 mountTable 函数');
+                        }}
                     }})
                     .catch(err => console.error('加载表格失败', err));
             }};
