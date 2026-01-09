@@ -54,6 +54,7 @@
         :toolbar-config="{ custom: true }"
         :scroll-y="{ enabled: true, gt: 0 }"
         :filter-config="{ remote: true }"
+        :sort-config="{ remote: true, showIcon: true }"
         @sort-change="handleVxeSortChange"
         @filter-change="handleVxeFilterChange"
         @cell-click="handleVxeCellClick"
@@ -106,7 +107,7 @@
           >
             <!-- 使用 vxe-table 原生筛选插槽 -->
             <template #filter="{ column, $panel }">
-              <div class="vxe-filter-custom-panel">
+              <div v-if="ensureFilterData(column.filters[0], col)" class="vxe-filter-custom-panel">
                 <div class="filter-header">{{ col.label }}筛选</div>
                 
                 <div class="filter-body">
@@ -118,7 +119,7 @@
                       size="small"
                       clearable
                       @input="$panel.changeOption($event, !!column.filters[0].data, column.filters[0])"
-                      @keyup.enter="handleVxeConfirmFilter(column, $panel)"
+                      @keyup.enter="$panel.confirmFilter()"
                     />
                   </template>
                   
@@ -146,9 +147,9 @@
                           size="small"
                           style="flex: 1"
                           @input="$panel.changeOption($event, true, column.filters[0])"
-                          @keyup.enter="handleVxeConfirmFilter(column, $panel)"
+                          @keyup.enter="$panel.confirmFilter()"
                         />
-                        <el-button v-if="column.filters[0].data.filters.length > 1" :icon="Delete" size="small" text type="danger" @click.stop="column.filters[0].data.filters.splice(index, 1)" />
+                        <el-button v-if="column.filters[0].data.filters.length > 1" :icon="Delete" size="small" text type="danger" @click.stop="column.filters[0].data.filters.splice(index, 1); $panel.changeOption($event, true, column.filters[0])" />
                       </div>
                       <el-button size="small" text type="primary" @click.stop="column.filters[0].data.filters.push({ operator: '=', value: '' })">+ 添加条件</el-button>
                       <div class="logic-switch" v-if="column.filters[0].data.filters.length > 1">
@@ -193,14 +194,9 @@
                       size="small"
                       clearable
                       @input="$panel.changeOption($event, !!column.filters[0].data, column.filters[0])"
-                      @keyup.enter="handleVxeConfirmFilter(column, $panel)"
+                      @keyup.enter="$panel.confirmFilter()"
                     />
                   </template>
-                </div>
-
-                <div class="filter-footer">
-                  <el-button type="primary" size="small" @click="handleVxeConfirmFilter(column, $panel)">确定</el-button>
-                  <el-button size="small" @click="handleVxeResetFilter(column, $panel)">重置</el-button>
                 </div>
               </div>
             </template>
@@ -630,7 +626,6 @@ const handleVxeSortChange: VxeTableEvents.SortChange<TableData> = ({ property, o
     sortInfo.prop = 'id'
     sortInfo.order = 'ascending'
   }
-  // Try to keep selected row visible after sorting
   loadData(selectedRowId.value !== null)
 }
 
@@ -640,60 +635,6 @@ const handleVxeFilterChange: VxeTableEvents.FilterChange<TableData> = ({ column,
   // 注意：不再需要同步到 filterForm，因为 loadData 会直接读取 VXE 的状态
   pagination.page = 1
   loadData(selectedRowId.value !== null)
-}
-
-// 核心修复：手动控制 vxe-table 筛选器的激活状态
-const handleVxeConfirmFilter = (column: any, $panel: any) => {
-  const option = column.filters[0]
-  if (!option) return
-  
-  const data = option.data
-  const col = columnConfig.value.find(c => c.prop === column.field)
-  
-  let isChecked = false
-  if (col?.filterType === 'number') {
-    isChecked = data && typeof data === 'object' && Array.isArray(data.filters) && 
-                data.filters.some((f: any) => f.operator && f.value !== '' && f.value !== null && f.value !== undefined)
-  } else if (col?.filterType === 'multi-select' || col?.filterType === 'select') {
-    isChecked = Array.isArray(data) ? data.length > 0 : (data !== null && data !== '' && data !== undefined)
-  } else {
-    isChecked = data !== null && data !== '' && data !== undefined
-  }
-  
-  // 必须设置 checked 属性，VXE 才会将其包含在 filterList 中
-  option.checked = isChecked
-  
-  // 使用推荐的 saveFilterPanelByEvent
-  if ($panel.saveFilterPanelByEvent) {
-    $panel.saveFilterPanelByEvent(new Event('confirm'))
-  } else {
-    $panel.confirmFilter()
-  }
-}
-
-const handleVxeResetFilter = (column: any, $panel: any) => {
-  const option = column.filters[0]
-  if (!option) return
-  
-  const col = columnConfig.value.find(c => c.prop === column.field)
-  
-  // 恢复初始数据结构
-  if (col?.filterType === 'number') {
-    option.data = { filters: [{ operator: '=', value: '' }], logic: 'AND' }
-  } else if (col?.filterType === 'multi-select' || col?.filterType === 'select') {
-    option.data = Array.isArray(option.data) ? [] : ''
-  } else {
-    option.data = ''
-  }
-  
-  option.checked = false
-  
-  // 使用推荐方式重置
-  if ($panel.resetFilter) {
-    $panel.resetFilter()
-  } else {
-    $panel.confirmFilter()
-  }
 }
 
 const initFilterForm = (columns: ColumnConfig[]) => {
@@ -711,6 +652,16 @@ const initFilterForm = (columns: ColumnConfig[]) => {
 const handleReset = () => {
   if (tableRef.value) {
     tableRef.value.clearFilter()
+    
+    // 针对数值类型列，手动恢复其数据结构，防止 clearFilter 导致的 undefined 错误
+    columnConfig.value.forEach(col => {
+      if (col.filterable && col.filterType === 'number') {
+        const column = tableRef.value?.getColumnByField(col.prop)
+        if (column && column.filters && column.filters.length > 0) {
+          column.filters[0].data = { filters: [{ operator: '=', value: '' }], logic: 'AND' }
+        }
+      }
+    })
   }
   sortInfo.prop = 'id'
   sortInfo.order = 'ascending'
@@ -730,17 +681,10 @@ const handleSizeChange = (size: number) => {
 const getColumnWidth = (col: ColumnConfig) => columnWidths[col.prop] || col.width || null
 
 const hasActiveFilter = (prop: string) => {
-  const col = columnConfig.value.find(c => c.prop === prop)
-  if (!col || !col.filterable) return false
-  switch (col.filterType) {
-    case 'number':
-      if (prop === 'id') return !!(filterForm[`${prop}Operator`] && filterForm[`${prop}Value`] !== undefined)
-      return Array.isArray(filterForm[`${prop}Filters`]) && filterForm[`${prop}Filters`].some((f: any) => f.operator && f.value !== undefined)
-    case 'multi-select':
-      return Array.isArray(filterForm[prop]) && filterForm[prop].length > 0
-    default:
-      return !!filterForm[prop]
-  }
+  if (!tableRef.value) return false
+  const column = tableRef.value.getColumnByField(prop)
+  if (!column || !column.filters) return false
+  return column.filters.some(option => option.checked)
 }
 
 const getFilterOptions = (prop: string) => {
@@ -797,6 +741,21 @@ const handleOpenColumnSettings = () => {
   if (tableRef.value) {
     tableRef.value.openCustom()
   }
+}
+
+// 核心修复：确保重置后数据结构依然存在
+const ensureFilterData = (option: any, col: ColumnConfig) => {
+  if (!option) return false
+  if (option.data === null || option.data === undefined || option.data === '') {
+    if (col.filterType === 'number') {
+      option.data = { filters: [{ operator: '=', value: '' }], logic: 'AND' }
+    } else if (col.filterType === 'multi-select') {
+      option.data = []
+    } else {
+      option.data = ''
+    }
+  }
+  return true
 }
 
 const getDetailColumns = (detailData: RowDetail) => {
@@ -1080,5 +1039,9 @@ onMounted(async () => {
 
 :deep(.vxe-header--column .vxe-cell--sort) {
   order: 3;
+  cursor: pointer;
+  min-width: 14px;
+  display: flex;
+  justify-content: center;
 }
 </style>
