@@ -251,20 +251,20 @@
                     </div>
                   </template>
                   
-                  <!-- 多选筛选 -->
-                  <template v-else-if="col.filterType === 'multi-select'">
+                  <!-- 多选/单选筛选 -->
+                  <template v-else-if="col.filterType === 'multi-select' || col.filterType === 'select'">
                     <el-select
                       v-model="filterInputs[col.prop]"
-                      :placeholder="`筛选${col.label}（可多选）`"
+                      :placeholder="`筛选${col.label}${col.filterType === 'multi-select' ? '（可多选）' : ''}`"
                       size="small"
                       clearable
-                      multiple
+                      :multiple="col.filterType === 'multi-select'"
                       collapse-tags
                       collapse-tags-tooltip
                       style="width: 100%"
                       :teleported="false"
                       popper-class="filter-select-dropdown-keep-open"
-                      @change="() => handleMultiSelectChange(col.prop)"
+                      @change="() => col.filterType === 'multi-select' ? handleMultiSelectChange(col.prop) : handleFilterChange(col.prop)"
                       @visible-change="(visible: boolean) => { 
                         // 当 el-select 的下拉框关闭时，确保 popover 不关闭
                         if (!visible && keepOpenPopovers.has(col.prop)) {
@@ -322,7 +322,7 @@
           ></div>
         </template>
         <template #default="scope">
-          <template v-if="col.filterType === 'multi-select'">
+          <template v-if="col.filterType === 'multi-select' || col.filterType === 'select'">
             <el-tag>
               {{ scope.row[col.prop] ?? '-' }}
             </el-tag>

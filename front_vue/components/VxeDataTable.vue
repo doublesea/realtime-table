@@ -260,20 +260,20 @@
                         </div>
                       </template>
                       
-                      <!-- 多选筛选 -->
-                      <template v-else-if="col.filterType === 'multi-select'">
+                      <!-- 多选/单选筛选 -->
+                      <template v-else-if="col.filterType === 'multi-select' || col.filterType === 'select'">
                         <el-select
                           v-model="filterInputs[col.prop]"
-                          :placeholder="`筛选${col.label}（可多选）`"
+                          :placeholder="`筛选${col.label}${col.filterType === 'multi-select' ? '（可多选）' : ''}`"
                           size="small"
                           clearable
-                          multiple
+                          :multiple="col.filterType === 'multi-select'"
                           collapse-tags
                           collapse-tags-tooltip
                           style="width: 100%"
                           :teleported="false"
                           popper-class="filter-select-dropdown-keep-open"
-                          @change="() => handleMultiSelectChange(col.prop)"
+                          @change="() => col.filterType === 'multi-select' ? handleMultiSelectChange(col.prop) : handleFilterChange(col.prop)"
                           @visible-change="(visible: boolean) => { 
                             if (!visible && keepOpenPopovers.has(col.prop)) {
                               nextTick(() => {
@@ -316,7 +316,7 @@
               </div>
             </template>
             <template #default="{ row }">
-              <template v-if="col.filterType === 'multi-select'">
+              <template v-if="col.filterType === 'multi-select' || col.filterType === 'select'">
                 <span class="list-column-tag">
                   {{ row[col.prop] ?? '-' }}
                 </span>
@@ -563,22 +563,18 @@ const sortInfo = reactive({
 const loadColumnsConfig = async () => {
   try {
     const config = await dataApi.getColumnsConfig()
-    // 只有当列的数量或属性发生变化时才更新，避免不必要的重绘
-    // 这里的简单判断可以覆盖大部分情况
-    const oldProps = columnConfig.value.map(c => c.prop).join(',')
-    const newProps = config.columns.map((c: any) => c.prop).join(',')
-    
-    if (oldProps !== newProps) {
+    // 移除之前的过度优化，确保配置（包括选项）始终同步
     columnConfig.value = config.columns
     initFilterForm(config.columns)
-      // 清理失效的 popover 状态
-      Object.keys(popoverVisible).forEach(key => {
-        if (!config.columns.find((c: any) => c.prop === key)) {
-          delete popoverVisible[key]
-        }
-      })
-    }
-    await refreshFilterOptions()
+    
+    // 清理失效的 popover 状态
+    Object.keys(popoverVisible).forEach(key => {
+      if (!config.columns.find((c: any) => c.prop === key)) {
+        delete popoverVisible[key]
+      }
+    })
+    
+    await refreshFilterOptions(true)
   } catch (error) {
     ElMessage.error('加载列配置失败')
   }
@@ -903,10 +899,18 @@ const hasActiveFilter = (prop: string) => {
   }
 }
 
-const getFilterOptions = (prop: string) => filterOptions[prop] || columnConfig.value.find(c => c.prop === prop)?.options || []
+const getFilterOptions = (prop: string) => {
+  // 优先使用动态加载的选项
+  if (filterOptions[prop] && filterOptions[prop].length > 0) {
+    return filterOptions[prop]
+  }
+  // 其次使用列配置自带的选项
+  const col = columnConfig.value.find(c => c.prop === prop)
+  return col?.options || []
+}
 
 let lastFilterRefreshTime = 0
-const FILTER_REFRESH_THROTTLE = 2000 // 2 seconds
+const FILTER_REFRESH_THROTTLE = 1000 // 降低到 1 秒
 
 const refreshFilterOptions = async (force = false) => {
   const now = Date.now()
@@ -916,9 +920,15 @@ const refreshFilterOptions = async (force = false) => {
   
   try {
     const options = await dataApi.getFilterOptions()
-    Object.keys(options).forEach(prop => { filterOptions[prop] = options[prop] })
+    if (options && typeof options === 'object') {
+      Object.keys(options).forEach(prop => {
+        filterOptions[prop] = options[prop]
+      })
+    }
     lastFilterRefreshTime = now
-  } catch (error) {}
+  } catch (error) {
+    console.error('Refresh filter options failed:', error)
+  }
 }
 
 const getFilterPopoverWidth = (filterType: string) => filterType === 'number' ? 320 : 250

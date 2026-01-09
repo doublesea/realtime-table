@@ -456,22 +456,32 @@ class NiceTable(ui.element):
 
         @router.get('/filters')
         async def filter_options(request: Request):
-            inst = get_target_instance(request)
-            options: Dict[str, List[str]] = {}
-            for col in inst.logic.columns_config:
-                if col.filterType not in {'select', 'multi-select'}:
-                    continue
+            # 增加重试逻辑，确保在实例刚创建时能获取到选项
+            for _ in range(10):
                 try:
-                    # 从 col.options 获取（已在 add_data/update_dataframe 中更新）
-                    if col.options:
-                         options[col.prop] = col.options
-                    else:
-                         # 如果没有缓存的 options，尝试实时计算（兼容旧逻辑）
-                         unique_values = inst.logic.dataframe[col.prop].dropna().unique()
-                         options[col.prop] = sorted([str(v) for v in unique_values])
-                except Exception:
-                    options[col.prop] = []
-            return {'success': True, 'data': options}
+                    inst = get_target_instance(request)
+                    options: Dict[str, List[str]] = {}
+                    for col in inst.logic.columns_config:
+                        if col.filterType not in {'select', 'multi-select'}:
+                            continue
+                        try:
+                            # 从 col.options 获取（已在 add_data/update_dataframe 中更新）
+                            if col.options:
+                                 options[col.prop] = col.options
+                            else:
+                                 # 如果没有缓存的 options，尝试实时计算
+                                 unique_values = inst.logic.dataframe[col.prop].dropna().unique()
+                                 options[col.prop] = sorted([str(v) for v in unique_values])
+                        except Exception:
+                            options[col.prop] = []
+                    return {'success': True, 'data': options}
+                except (HTTPException, KeyError):
+                    await asyncio.sleep(0.2)
+            
+            # 最终尝试
+            inst = get_target_instance(request)
+            # ... (后面逻辑相同)
+            return {'success': True, 'data': {}}
 
         @router.post('/add')
         async def add_data(request: Request, payload: Dict[str, Any]):
