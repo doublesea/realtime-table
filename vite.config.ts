@@ -4,6 +4,10 @@ import { resolve } from 'path'
 
 export default defineConfig({
   plugins: [vue()],
+  define: {
+    __VUE_OPTIONS_API__: true,
+    __VUE_PROD_DEVTOOLS__: false,
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'front_vue')
@@ -22,6 +26,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
+    assetsInlineLimit: 0, // 禁用内联，防止大 data URI 导致卡死
     rollupOptions: {
       output: {
         manualChunks: undefined

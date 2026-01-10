@@ -42,23 +42,46 @@ onMounted(() => {
 // 注册暴露的实例到全局注册表
 const registerInstance = () => {
   const tid = tableId.value
-  if (tid && dataTableRef.value) {
-    // 注册到全局注册表
-    const registry = (window as any).__nice_table_registry || {}
-    registry[tid] = {
-      refreshData: () => dataTableRef.value?.refreshData(),
-      refreshColumns: () => dataTableRef.value?.refreshColumns(),
-      switchVersion: (version: string) => { currentVersion.value = version }
-    }
-    ;(window as any).__nice_table_registry = registry
-    console.log('NiceTable instance registered:', tid, registry, 'Version:', currentVersion.value)
-    
+  if (!tid) return false
+
+  // 即使 dataTableRef 还没准备好，也先注册一个对象，避免 Python 报错
+  const registry = (window as any).__nice_table_registry || {}
+  
+  registry[tid] = {
+    refreshData: () => {
+      if (dataTableRef.value?.refreshData) {
+        dataTableRef.value.refreshData()
+      } else {
+        console.warn('DataTable ref not ready yet for refreshData')
+      }
+    },
+    refreshColumns: () => {
+      if (dataTableRef.value?.refreshColumns) {
+        dataTableRef.value.refreshColumns()
+      } else {
+        console.warn('DataTable ref not ready yet for refreshColumns')
+      }
+    },
+    switchVersion: (version: string) => { currentVersion.value = version }
+  }
+  
+  ;(window as any).__nice_table_registry = registry
+  
+  if (dataTableRef.value) {
+    console.log('NiceTable instance fully registered:', tid, 'Version:', currentVersion.value)
     // 触发自定义事件，通知 Python 端实例已就绪
     window.dispatchEvent(new CustomEvent('nice-table-ready', { detail: { tableId: tid } }))
     return true
   }
   return false
 }
+
+// 监听 ID 变化，确保在 ID 出现的第一时间注册
+watch(tableId, (newId) => {
+  if (newId) {
+    registerInstance()
+  }
+}, { immediate: true })
 
 // 监听版本切换，重新注册实例
 watch(currentVersion, async () => {

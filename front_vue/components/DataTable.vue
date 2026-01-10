@@ -12,7 +12,7 @@
           :pager-count="5"
           layout="total, sizes, prev, pager, next, jumper"
           background
-          small
+          size="small"
           :prev-icon="ArrowLeft"
           :next-icon="ArrowRight"
           @size-change="handleSizeChange"

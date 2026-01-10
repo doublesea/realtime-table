@@ -1,7 +1,13 @@
 import asyncio
 import logging
+import mimetypes
 import uuid
 from pathlib import Path
+
+# 确保 MIME 类型正确
+mimetypes.add_type('application/font-woff2', '.woff2')
+mimetypes.add_type('application/font-woff', '.woff')
+mimetypes.add_type('application/x-font-ttf', '.ttf')
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -144,13 +150,16 @@ class NiceTable(ui.element):
     def refresh_data(self):
         """通知前端刷新数据列表"""
         js_code = f"""
-            const inst = window.__nice_table_registry && window.__nice_table_registry['{self.uid}'];
-            if (inst && inst.refreshData) {{
+            const tid = '{self.uid}';
+            const inst = window.__nice_table_registry && window.__nice_table_registry[tid];
+            if (inst) {{
                 try {{
                     inst.refreshData();
                 }} catch (err) {{
-                    console.error('Error calling refreshData:', err);
+                    console.error('NiceTable [' + tid + '] refreshData error:', err);
                 }}
+            }} else {{
+                console.warn('NiceTable instance [' + tid + '] not found. If the tab is hidden, this is expected.');
             }}
         """
         
@@ -163,7 +172,7 @@ class NiceTable(ui.element):
                 try:
                     client.run_javascript(js_code)
                 except Exception as e:
-                    logger.debug(f'向客户端 {client.id} 发送 JavaScript 失败: {e}')
+                    logger.debug(f'向客户端 {{client.id}} 发送 JavaScript 失败: {{e}}')
                     # 如果客户端已断开，从集合中移除
                     NiceTable._connected_clients.discard(client)
 
@@ -261,6 +270,17 @@ class NiceTable(ui.element):
         ui.add_body_html(
             f"""
             <script type="module">
+            // 确保注册表存在
+            window.__nice_table_registry = window.__nice_table_registry || {{}};
+            // 预注册占位，防止 Python 早期调用报错
+            if (!window.__nice_table_registry['{self.uid}']) {{
+                window.__nice_table_registry['{self.uid}'] = {{
+                    refreshData: () => console.log('NiceTable [' + '{self.uid}' + '] is initializing...'),
+                    refreshColumns: () => {{}},
+                    switchVersion: () => {{}}
+                }};
+            }}
+
             // 注入全局 Fetch 拦截器，自动附加 x-table-id
             if (!window.__nice_table_fetch_intercepted) {{
                 window.__nice_table_fetch_intercepted = true;
@@ -283,10 +303,33 @@ class NiceTable(ui.element):
                 }};
             }}
 
+            // 备用：轮询检查注册表（最多60次，30秒后停止）
+            let pollCount = 0;
+            const maxPolls = 60;
+            const bindExpose = () => {{
+                pollCount++;
+                const registry = window.__nice_table_registry;
+                const exposed = registry && registry['{self.uid}'];
+                
+                // 检查是否是真实实例（不仅仅是占位符）
+                const isRealInstance = exposed && exposed.refreshData && !exposed.refreshData.toString().includes('initializing');
+
+                if (isRealInstance) {{
+                    console.log('NiceTable [' + '{self.uid}' + '] exposed instance found via polling (attempt ' + pollCount + ').');
+                }} else if (pollCount < maxPolls) {{
+                    setTimeout(bindExpose, 500);
+                }} else {{
+                    console.error('NiceTable [' + '{self.uid}' + '] exposed instance NOT found after 30s. JS module might have failed to load.');
+                }}
+            }};
+            
+            // 启动轮询
+            bindExpose();
+
             const mountApp_{self.uid} = () => {{
                 const container = document.getElementById('{self.container_id}');
                 if (!container) {{
-                    requestAnimationFrame(mountApp_{self.uid});
+                    if (pollCount < 20) requestAnimationFrame(mountApp_{self.uid});
                     return;
                 }}
                 let root = container.querySelector('.nice-table-root');
@@ -298,8 +341,10 @@ class NiceTable(ui.element):
                     container.appendChild(root);
                 }}
                 
+                console.log('NiceTable [' + '{self.uid}' + '] starting to load JS module...');
                 import('{js_url}')
                     .then((module) => {{
+                        console.log('NiceTable [' + '{self.uid}' + '] JS module loaded, mounting...');
                         const mount = module.mountTable || window.mountNiceTable;
                         if (mount) {{
                             mount(root, {{
@@ -307,51 +352,14 @@ class NiceTable(ui.element):
                                 defaultVersion: '{ "vxe" if self.use_vxe else "element" }',
                                 apiUrl: ''
                             }});
-                            // 等待一下让 Vue 应用完全初始化
-                            setTimeout(() => bindExpose(), 500);
                         }} else {{
-                            console.error('找不到 mountTable 函数');
+                            console.error('NiceTable [' + '{self.uid}' + '] mountTable function not found in module');
                         }}
                     }})
-                    .catch(err => console.error('加载表格失败', err));
+                    .catch(err => {{
+                        console.error('NiceTable [' + '{self.uid}' + '] failed to load JS module:', err);
+                    }});
             }};
-
-            // 监听 Vue 应用就绪事件
-            window.addEventListener('nice-table-ready', (event) => {{
-                const detail = event.detail;
-                if (detail && detail.tableId === '{self.uid}') {{
-                    // 检查注册表
-                    const exposed = window.__nice_table_registry && window.__nice_table_registry['{self.uid}'];
-                    if (exposed) {{
-                        // 主动触发一次刷新，确保数据加载
-                        if (exposed.refreshData) {{
-                            setTimeout(() => exposed.refreshData(), 100);
-                        }}
-                    }} else {{
-                        console.warn('NiceTable instance ready event received but instance not found in registry');
-                    }}
-                }}
-            }});
-            
-            // 备用：轮询检查注册表（最多10次，2秒后停止）
-            let pollCount = 0;
-            const maxPolls = 10;
-            const bindExpose = () => {{
-                pollCount++;
-                const exposed = window.__nice_table_registry && window.__nice_table_registry['{self.uid}'];
-                if (exposed) {{
-                    if (exposed.refreshData) {{
-                        setTimeout(() => exposed.refreshData(), 100);
-                    }}
-                }} else if (pollCount < maxPolls) {{
-                    setTimeout(bindExpose, 200);
-                }} else {{
-                    console.warn('NiceTable exposed instance NOT found after polling, waiting for event...');
-                }}
-            }};
-            
-            // 延迟启动轮询，给事件监听器优先机会
-            setTimeout(bindExpose, 500);
 
             mountApp_{self.uid}();
             </script>
@@ -391,7 +399,10 @@ class NiceTable(ui.element):
             inst = get_target_instance(request)
             filters = payload.get('filters')
             filter_params = FilterParams(**filters) if filters else None
-            return inst.logic.get_list(
+            
+            # 使用 to_thread 防止阻塞主循环
+            return await asyncio.to_thread(
+                inst.logic.get_list,
                 filters=filter_params,
                 page=payload.get('page', 1),
                 page_size=payload.get('pageSize', inst.page_size),
@@ -408,19 +419,17 @@ class NiceTable(ui.element):
             filters = payload.get('filters')
             filter_params = FilterParams(**filters) if filters else None
             
-            # 支持排序参数，以准确定位排序后的行位置
             sort_by = payload.get('sortBy')
             sort_order = payload.get('sortOrder')
             
-            return {
-                'success': True, 
-                'data': inst.logic.get_row_position(
-                    row_id, 
-                    filter_params,
-                    sort_by=sort_by,
-                    sort_order=sort_order
-                )
-            }
+            data = await asyncio.to_thread(
+                inst.logic.get_row_position,
+                row_id, 
+                filter_params,
+                sort_by=sort_by,
+                sort_order=sort_order
+            )
+            return {'success': True, 'data': data}
 
         @router.post('/row-detail')
         async def row_detail(request: Request, payload: Dict[str, Any]):
@@ -429,7 +438,8 @@ class NiceTable(ui.element):
             row_id = row.get('id')
             if row_id is None:
                 raise HTTPException(status_code=400, detail='缺少 row.id')
-            return {'success': True, 'data': inst.logic.get_row_detail(row_id)}
+            data = await asyncio.to_thread(inst.logic.get_row_detail, row_id)
+            return {'success': True, 'data': data}
 
         @router.get('/columns')
         async def columns(request: Request):
