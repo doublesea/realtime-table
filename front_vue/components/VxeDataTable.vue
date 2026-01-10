@@ -45,7 +45,6 @@
         border
         size="mini"
         height="100%"
-        auto-resize
         show-overflow="ellipsis"
         show-header-overflow="ellipsis"
         :row-config="{ isHover: true, isCurrent: true, keyField: 'id' }"
@@ -766,6 +765,40 @@ const exposedMethods = {
 
 defineExpose(exposedMethods)
 
+// 核心修复：处理隐藏 Tab 切换导致的卡死或布局错乱
+const isVisible = ref(true)
+let visibilityObserver: IntersectionObserver | null = null
+
+const handleResize = () => {
+  if (isVisible.value && tableRef.value) {
+    tableRef.value.recalculate()
+  }
+}
+
+const initVisibilityObserver = () => {
+  const root = document.getElementById(vxeTableId.value)?.parentElement
+  if (!root || !window.IntersectionObserver) return
+
+  visibilityObserver = new IntersectionObserver((entries) => {
+    const entry = entries[0]
+    const wasVisible = isVisible.value
+    isVisible.value = entry.isIntersecting
+    
+    // 当从隐藏切换到显示时，强制重绘表格
+    if (isVisible.value && !wasVisible) {
+      nextTick(() => {
+        if (tableRef.value) {
+          tableRef.value.recalculate()
+          console.log('Table visibility changed to visible, recalculated.')
+        }
+      })
+    }
+  }, { threshold: 0.01 })
+
+  visibilityObserver.observe(root)
+  window.addEventListener('resize', handleResize)
+}
+
 onMounted(async () => {
   // 初始化 ID
   const tid = getTableId()
@@ -774,9 +807,22 @@ onMounted(async () => {
   await loadColumnsConfig()
   await loadData()
   
+  // 初始化可见性观察者
+  nextTick(() => {
+    initVisibilityObserver()
+  })
+  
   // 等待一下确保 DOM 完全渲染
   await nextTick()
   await nextTick()
+})
+
+onUnmounted(() => {
+  if (visibilityObserver) {
+    visibilityObserver.disconnect()
+    visibilityObserver = null
+  }
+  window.removeEventListener('resize', handleResize)
 })
 </script>
 

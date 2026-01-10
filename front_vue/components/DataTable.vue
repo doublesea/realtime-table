@@ -1703,6 +1703,35 @@ const exposedMethods = {
 
 defineExpose(exposedMethods)
 
+// 核心修复：处理隐藏 Tab 切换导致的卡死或布局错乱
+const isVisible = ref(true)
+let visibilityObserver: IntersectionObserver | null = null
+
+const initVisibilityObserver = () => {
+  if (!tableRef.value || !tableRef.value.$el) return
+  const root = tableRef.value.$el.parentElement
+  if (!root || !window.IntersectionObserver) return
+
+  visibilityObserver = new IntersectionObserver((entries) => {
+    const entry = entries[0]
+    const wasVisible = isVisible.value
+    isVisible.value = entry.isIntersecting
+    
+    // 当从隐藏切换到显示时，强制重绘表格
+    if (isVisible.value && !wasVisible) {
+      nextTick(() => {
+        if (tableRef.value) {
+          tableRef.value.doLayout()
+          initTableWidth()
+          console.log('Element table visibility changed to visible, doLayout called.')
+        }
+      })
+    }
+  }, { threshold: 0.01 })
+
+  visibilityObserver.observe(root)
+}
+
 // 初始化
 onMounted(async () => {
   try {
@@ -1723,12 +1752,29 @@ onMounted(async () => {
     initTableWidth()
   }
   
+  // 初始化可见性观察者
+  nextTick(() => {
+    initVisibilityObserver()
+  })
+  
   // 等待多个 tick 后注册到全局注册表
   await nextTick()
   await nextTick()
   
   // 强制启用分页跳转输入框
   enablePaginationJumper()
+})
+
+onUnmounted(() => {
+  if (visibilityObserver) {
+    visibilityObserver.disconnect()
+    visibilityObserver = null
+  }
+  if (keepOpenInterval !== null) {
+    clearInterval(keepOpenInterval)
+  }
+  document.removeEventListener('click', handleClickOutside)
+  window.removeEventListener('resize', handleResize)
 })
 </script>
 
