@@ -396,13 +396,17 @@ class DataTable:
             # 检查是否需要排序
             needs_sort = sort_by and sort_by in filtered_df.columns
             
+            # 如果没有指定排序，默认按ID升序
+            effective_sort_by = sort_by if needs_sort else ('id' if 'id' in filtered_df.columns else None)
+            effective_sort_order = sort_order if needs_sort else 'ascending'
+            
             # 计算总数
             total_count = len(filtered_df)
             
             # 排序
-            if needs_sort:
-                ascending = sort_order == 'ascending' if sort_order else True
-                filtered_df = filtered_df.sort_values(by=sort_by, ascending=ascending, na_position='last')
+            if effective_sort_by:
+                ascending = effective_sort_order == 'ascending'
+                filtered_df = filtered_df.sort_values(by=effective_sort_by, ascending=ascending, na_position='last')
             
             # 分页
             start_index = (page - 1) * page_size

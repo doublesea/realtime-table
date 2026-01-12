@@ -44,6 +44,7 @@
         height="100%"
         style="width: 100%; table-layout: fixed"
         class="table-with-transition"
+        :default-sort="{ prop: 'id', order: 'ascending' }"
       @sort-change="handleSortChange"
       @row-click="handleRowClick"
       @expand-change="handleExpandChange"
@@ -781,7 +782,7 @@ const loadData = async (keepSelectedRow = false, silent = false) => {
     let shouldKeepSelected = true
     if (keepSelectedRow && selectedRowId.value !== null) {
       try {
-        const positionResponse = await dataApi.getRowPosition(selectedRowId.value, requestFilters)
+        const positionResponse = await dataApi.getRowPosition(selectedRowId.value, requestFilters, sortBy, sortOrder)
         if (positionResponse.found) {
           // 计算选中行应该在哪一页
           targetPage = Math.floor(positionResponse.position / pagination.pageSize) + 1
