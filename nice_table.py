@@ -241,8 +241,11 @@ class NiceTable(ui.element):
         if NiceTable._css_asset is None or NiceTable._js_asset is None:
             NiceTable._css_asset, NiceTable._js_asset = NiceTable._parse_assets_from_html()
         
-        css_url = f'{self._static_mount_path}/{self._css_asset}'
-        js_url = f'{self._static_mount_path}/{self._js_asset}'
+        # 增加版本号避免缓存问题
+        import time
+        ts = int(time.time())
+        css_url = f'{self._static_mount_path}/{self._css_asset}?v={ts}'
+        js_url = f'{self._static_mount_path}/{self._js_asset}?v={ts}'
 
         # 注意：这里向前端传递了 uid，前端 fetch 时需要在 header 或 query 中带上
         # 目前前端代码可能只请求 /columns, /list，没有区分实例。
@@ -277,7 +280,8 @@ class NiceTable(ui.element):
                 window.__nice_table_registry['{self.uid}'] = {{
                     refreshData: () => console.log('NiceTable [' + '{self.uid}' + '] is initializing...'),
                     refreshColumns: () => {{}},
-                    switchVersion: () => {{}}
+                    switchVersion: () => {{}},
+                    _isPlaceholder: true
                 }};
             }}
 
@@ -303,23 +307,25 @@ class NiceTable(ui.element):
                 }};
             }}
 
-            // 备用：轮询检查注册表（最多60次，30秒后停止）
+            // 备用：轮询检查注册表（增加重试次数和延时，处理长时间后台运行的情况）
             let pollCount = 0;
-            const maxPolls = 60;
+            const maxPolls = 120; // 增加到 60 秒
             const bindExpose = () => {{
                 pollCount++;
                 const registry = window.__nice_table_registry;
                 const exposed = registry && registry['{self.uid}'];
                 
                 // 检查是否是真实实例（不仅仅是占位符）
-                const isRealInstance = exposed && exposed.refreshData && !exposed.refreshData.toString().includes('initializing');
+                const isRealInstance = exposed && !exposed._isPlaceholder;
 
                 if (isRealInstance) {{
                     console.log('NiceTable [' + '{self.uid}' + '] exposed instance found via polling (attempt ' + pollCount + ').');
                 }} else if (pollCount < maxPolls) {{
-                    setTimeout(bindExpose, 500);
+                    // 如果 tab 处于后台，延长时间间隔以减少 CPU 消耗
+                    const delay = document.hidden ? 2000 : 500;
+                    setTimeout(bindExpose, delay);
                 }} else {{
-                    console.error('NiceTable [' + '{self.uid}' + '] exposed instance NOT found after 30s. JS module might have failed to load.');
+                    console.warn('NiceTable [' + '{self.uid}' + '] exposed instance NOT found after 60s+. It will initialize when the container is ready.');
                 }}
             }};
             
@@ -329,7 +335,9 @@ class NiceTable(ui.element):
             const mountApp_{self.uid} = () => {{
                 const container = document.getElementById('{self.container_id}');
                 if (!container) {{
-                    if (pollCount < 20) requestAnimationFrame(mountApp_{self.uid});
+                    // 容器未找到，持续重试
+                    const retryDelay = pollCount < 20 ? 200 : 1000;
+                    setTimeout(mountApp_{self.uid}, retryDelay);
                     return;
                 }}
                 let root = container.querySelector('.nice-table-root');
@@ -341,7 +349,7 @@ class NiceTable(ui.element):
                     container.appendChild(root);
                 }}
                 
-                console.log('NiceTable [' + '{self.uid}' + '] starting to load JS module...');
+                console.log('NiceTable [' + '{self.uid}' + '] container found, loading module...');
                 import('{js_url}')
                     .then((module) => {{
                         console.log('NiceTable [' + '{self.uid}' + '] JS module loaded, mounting...');
@@ -358,6 +366,8 @@ class NiceTable(ui.element):
                     }})
                     .catch(err => {{
                         console.error('NiceTable [' + '{self.uid}' + '] failed to load JS module:', err);
+                        // 模块加载失败可能是临时网络问题，5秒后重试
+                        setTimeout(mountApp_{self.uid}, 5000);
                     }});
             }};
 

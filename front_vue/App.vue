@@ -88,7 +88,8 @@ const registerInstance = () => {
         console.warn('DataTable ref not ready yet for refreshColumns')
       }
     },
-    switchVersion: (version: string) => { currentVersion.value = version }
+    switchVersion: (version: string) => { currentVersion.value = version },
+    _isPlaceholder: false
   }
   
   ;(window as any).__nice_table_registry = registry
