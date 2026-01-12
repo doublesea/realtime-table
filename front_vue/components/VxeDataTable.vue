@@ -132,7 +132,7 @@
                       size="small"
                       clearable
                       @input="$panel.changeOption($event, !!column.filters[0].data, column.filters[0])"
-                      @keyup.enter="$panel.confirmFilter()"
+                      @keyup.enter="confirmFilter($panel, $event)"
                     />
                   </template>
                   
@@ -160,7 +160,7 @@
                           size="small"
                           style="flex: 1"
                           @input="$panel.changeOption($event, true, column.filters[0])"
-                          @keyup.enter="$panel.confirmFilter()"
+                          @keyup.enter="confirmFilter($panel, $event)"
                         />
                         <el-button v-if="column.filters[0].data.filters.length > 1" :icon="Delete" size="small" text type="danger" @click.stop="column.filters[0].data.filters.splice(index, 1); $panel.changeOption($event, true, column.filters[0])" />
                       </div>
@@ -185,7 +185,8 @@
                       collapse-tags
                       style="width: 100%"
                       :teleported="false"
-                      @change="$panel.changeOption($event, Array.isArray(column.filters[0].data) ? column.filters[0].data.length > 0 : !!column.filters[0].data, column.filters[0])"
+                      popper-class="vxe-filter-select-dropdown"
+                      @change="handleFilterSelectChange($event, column, $panel, col)"
                       @mousedown.stop
                       @mouseup.stop
                       @click.stop
@@ -195,6 +196,7 @@
                         :key="option"
                         :label="option"
                         :value="option"
+                        @keyup.enter="confirmFilter($panel, $event)"
                       />
                     </el-select>
                   </template>
@@ -207,7 +209,7 @@
                       size="small"
                       clearable
                       @input="$panel.changeOption($event, !!column.filters[0].data, column.filters[0])"
-                      @keyup.enter="$panel.confirmFilter()"
+                      @keyup.enter="confirmFilter($panel, $event)"
                     />
                   </template>
                 </div>
@@ -651,6 +653,34 @@ const handleVxeFilterChange: VxeTableEvents.FilterChange<TableData> = () => {
   loadData(selectedRowId.value !== null)
 }
 
+// 处理列表类筛选的选择变化
+const handleFilterSelectChange = (value: any, column: any, $panel: any, col: ColumnConfig) => {
+  const checked = Array.isArray(value) ? value.length > 0 : !!value;
+  
+  // 1. 手动强制更新数据和勾选状态，确保同步
+  if (column.filters && column.filters[0]) {
+    column.filters[0].data = value;
+    column.filters[0].checked = checked;
+  }
+  
+  // 2. 同步选项状态给 VXE 面板（使用 null 作为第一个参数，因为我们没有真实的事件对象）
+  if ($panel && typeof $panel.changeOption === 'function') {
+    $panel.changeOption(null, checked, column.filters[0]);
+  }
+  
+  if (col.filterType === 'multi-select') {
+    // 3. 多选：立即刷新数据，并保持面板打开
+    pagination.page = 1;
+    nextTick(() => {
+      // 使用 silent = true 避免 Loading 遮罩抢占焦点
+      loadData(selectedRowId.value !== null, true);
+    });
+  } else {
+    // 3. 单选：立即确认并关闭面板
+    confirmFilter($panel);
+  }
+}
+
 const handleReset = () => {
   if (tableRef.value) {
     tableRef.value.clearFilter()
@@ -786,6 +816,19 @@ defineExpose(exposedMethods)
 
 // 核心修复：处理隐藏 Tab 切换导致的卡死或布局错乱
 let visibilityObserver: IntersectionObserver | null = null
+
+// 通用的确认筛选方法，兼容新旧版本，消除废弃警告
+const confirmFilter = ($panel: any, evnt?: any) => {
+  if ($panel) {
+    // 优先使用新版推荐的方法 saveFilterPanelByEvent
+    if (typeof $panel.saveFilterPanelByEvent === 'function') {
+      $panel.saveFilterPanelByEvent(evnt);
+    } else if (typeof $panel.confirmFilter === 'function') {
+      // 回退到旧版
+      $panel.confirmFilter();
+    }
+  }
+}
 
 let lastResizeTime = 0;
 const handleResize = () => {

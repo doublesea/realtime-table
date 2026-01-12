@@ -352,7 +352,23 @@ class DataTable:
                 if len(filter_list) > 0:
                     # 确保 DataFrame 列的数据类型匹配
                     try:
-                        mask &= target_df[field_name].isin(filter_list)
+                        # 核心优化：如果列是数字类型，尝试将筛选值转为数字以提高 isin 性能
+                        if col_config.type == 'number':
+                            numeric_filter_list = []
+                            for v in filter_list:
+                                try:
+                                    parsed = self._parse_number_value(v)
+                                    if parsed is not None:
+                                        numeric_filter_list.append(parsed)
+                                except Exception:
+                                    pass
+                            
+                            if numeric_filter_list:
+                                mask &= target_df[field_name].isin(numeric_filter_list)
+                            else:
+                                mask &= target_df[field_name].astype(str).isin([str(v) for v in filter_list])
+                        else:
+                            mask &= target_df[field_name].isin(filter_list)
                     except Exception as e:
                         # 尝试转换为字符串后再筛选
                         try:

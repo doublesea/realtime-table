@@ -35,17 +35,3 @@ export function mountTable(container: string | HTMLElement, props: any = {}) {
 if (typeof window !== 'undefined') {
   (window as any).mountNiceTable = mountTable
 }
-
-// 兼容旧的单实例挂载方式
-if (typeof document !== 'undefined') {
-  const rootEl = document.getElementById('root')
-  // 只有在没有显式指定不自动挂载的情况下才自动挂载
-  if (rootEl && !rootEl.dataset.vMounted) {
-    mountTable(rootEl, {
-      tableId: rootEl.dataset.tableId,
-      defaultVersion: rootEl.dataset.defaultVersion,
-      apiUrl: ''
-    })
-    rootEl.dataset.vMounted = 'true'
-  }
-}

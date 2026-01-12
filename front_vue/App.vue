@@ -70,71 +70,51 @@ const registerInstance = () => {
   const tid = tableId.value
   if (!tid) return false
 
-  // 即使 dataTableRef 还没准备好，也先注册一个对象，避免 Python 报错
+  // 确保注册表存在
   const registry = (window as any).__nice_table_registry || {}
   
+  // 注册/更新实例方法
   registry[tid] = {
-    refreshData: () => {
-      if (dataTableRef.value?.refreshData) {
-        dataTableRef.value.refreshData()
-      } else {
-        console.warn('DataTable ref not ready yet for refreshData')
-      }
-    },
-    refreshColumns: () => {
-      if (dataTableRef.value?.refreshColumns) {
-        dataTableRef.value.refreshColumns()
-      } else {
-        console.warn('DataTable ref not ready yet for refreshColumns')
-      }
-    },
+    refreshData: () => dataTableRef.value?.refreshData?.(),
+    refreshColumns: () => dataTableRef.value?.refreshColumns?.(),
     switchVersion: (version: string) => { currentVersion.value = version },
-    _isPlaceholder: false
+    _isPlaceholder: !dataTableRef.value
   }
   
   ;(window as any).__nice_table_registry = registry
   
   if (dataTableRef.value) {
-    console.log('NiceTable instance fully registered:', tid, 'Version:', currentVersion.value)
-    // 触发自定义事件，通知 Python 端实例已就绪
+    console.log(`NiceTable [${tid}] registered (Version: ${currentVersion.value})`)
     window.dispatchEvent(new CustomEvent('nice-table-ready', { detail: { tableId: tid } }))
     return true
   }
   return false
 }
 
-// 监听 ID 变化，确保在 ID 出现的第一时间注册
-watch(tableId, (newId) => {
-  if (newId) {
-    registerInstance()
-  }
+// 监听 ID 和版本变化，确保实时注册
+watch([tableId, currentVersion], () => {
+  nextTick(registerInstance)
 }, { immediate: true })
 
-// 监听版本切换，重新注册实例
-watch(currentVersion, async () => {
-  await nextTick()
+// 监听 dataTableRef 变化 (当组件切换时)
+watch(dataTableRef, () => {
   registerInstance()
 })
 
-onMounted(async () => {
-  // 等待多个 tick，确保 DOM 完全渲染
-  await nextTick()
-  await nextTick()
-  
-  // 如果第一次尝试失败，使用轮询重试
-  if (!registerInstance()) {
-    let retries = 0
-    const maxRetries = 20
-    const interval = setInterval(() => {
-      retries++
-      if (registerInstance() || retries >= maxRetries) {
-        clearInterval(interval)
-        if (retries >= maxRetries) {
-          console.warn('Failed to register NiceTable instance after', maxRetries, 'retries')
-        }
-      }
-    }, 200)
+onMounted(() => {
+  // 兜底：如果没通过 props 传版本，尝试从 dataset 获取
+  if (!props.defaultVersion) {
+    const root = document.getElementById('root')
+    if (root?.dataset.defaultVersion) {
+      currentVersion.value = root.dataset.defaultVersion
+    }
   }
+  
+  // 间隔重试，直到 ref 准备就绪（处理异步挂载）
+  let retries = 0
+  const timer = setInterval(() => {
+    if (registerInstance() || ++retries > 50) clearInterval(timer)
+  }, 200)
 })
 
 defineExpose({

@@ -268,109 +268,83 @@ class NiceTable(ui.element):
             """
         )
 
-        ui.html(f'<div id="{self.container_id}" style="width: 100%; height: 100%;"></div>').classes('w-full h-full')
+        # 2. 容器
+        ui.html(f'<div id="{self.container_id}" class="nice-table-container" style="width: 100%; height: 100%; display: flex; flex-direction: column; flex-grow: 1;"></div>').classes('w-full h-full flex-grow')
 
+        # 3. 挂载脚本
         ui.add_body_html(
             f"""
             <script type="module">
-            // 确保注册表存在
             window.__nice_table_registry = window.__nice_table_registry || {{}};
-            // 预注册占位，防止 Python 早期调用报错
+            
+            // 占位注册，防止 Python 调用报错
             if (!window.__nice_table_registry['{self.uid}']) {{
                 window.__nice_table_registry['{self.uid}'] = {{
-                    refreshData: () => console.log('NiceTable [' + '{self.uid}' + '] is initializing...'),
+                    refreshData: () => {{}},
                     refreshColumns: () => {{}},
                     switchVersion: () => {{}},
                     _isPlaceholder: true
                 }};
             }}
 
-            // 注入全局 Fetch 拦截器，自动附加 x-table-id
+            // 拦截 fetch 请求以附加 x-table-id (作为最后的兜底)
             if (!window.__nice_table_fetch_intercepted) {{
                 window.__nice_table_fetch_intercepted = true;
                 const originalFetch = window.fetch;
                 window.fetch = function(url, options) {{
-                    // 只拦截指向当前 API 的请求
-                    if (typeof url === 'string' && (url.includes('/list') || url.includes('/columns') || url.includes('/filters') || url.includes('/row-') || url.includes('/add') || url.includes('/statistics'))) {{
+                    if (typeof url === 'string' && (url.includes('/list') || url.includes('/columns') || url.includes('/filters'))) {{
                         options = options || {{}};
                         options.headers = options.headers || {{}};
-                        
-                        // 尝试从最近的 container 中查找 table-id
-                        let tableId = null;
-                        if (options.headers['x-table-id']) {{
-                            tableId = options.headers['x-table-id'];
+                        if (!options.headers['x-table-id']) {{
+                            if (options.headers instanceof Headers) options.headers.append('x-table-id', '{self.uid}');
+                            else options.headers['x-table-id'] = '{self.uid}';
                         }}
-                        
-                        // 如果没有 tableId，不做处理，让 Axios 拦截器或其他逻辑处理
                     }}
                     return originalFetch(url, options);
                 }};
             }}
 
-            // 备用：轮询检查注册表（增加重试次数和延时，处理长时间后台运行的情况）
+            // 轮询检查 Vue 实例是否接管
             let pollCount = 0;
-            const maxPolls = 120; // 增加到 60 秒
             const bindExpose = () => {{
                 pollCount++;
-                const registry = window.__nice_table_registry;
-                const exposed = registry && registry['{self.uid}'];
-                
-                // 检查是否是真实实例（不仅仅是占位符）
-                const isRealInstance = exposed && !exposed._isPlaceholder;
-
-                if (isRealInstance) {{
-                    console.log('NiceTable [' + '{self.uid}' + '] exposed instance found via polling (attempt ' + pollCount + ').');
-                }} else if (pollCount < maxPolls) {{
-                    // 如果 tab 处于后台，延长时间间隔以减少 CPU 消耗
-                    const delay = document.hidden ? 2000 : 500;
-                    setTimeout(bindExpose, delay);
-                }} else {{
-                    console.warn('NiceTable [' + '{self.uid}' + '] exposed instance NOT found after 60s+. It will initialize when the container is ready.');
+                const inst = window.__nice_table_registry['{self.uid}'];
+                if (inst && !inst._isPlaceholder) {{
+                    console.log('NiceTable [' + '{self.uid}' + '] ready.');
+                }} else if (pollCount < 120) {{
+                    setTimeout(bindExpose, document.hidden ? 2000 : 500);
                 }}
             }};
-            
-            // 启动轮询
             bindExpose();
 
+            // 挂载应用
             const mountApp_{self.uid} = () => {{
                 const container = document.getElementById('{self.container_id}');
                 if (!container) {{
-                    // 容器未找到，持续重试
-                    const retryDelay = pollCount < 20 ? 200 : 1000;
-                    setTimeout(mountApp_{self.uid}, retryDelay);
+                    setTimeout(mountApp_{self.uid}, pollCount < 20 ? 200 : 1000);
                     return;
                 }}
+                
                 let root = container.querySelector('.nice-table-root');
                 if (!root) {{
                     root = document.createElement('div');
                     root.className = 'nice-table-root';
-                    root.style.width = '100%';
-                    root.style.height = '100%';
+                    root.style.cssText = 'width:100%; height:100%;';
                     container.appendChild(root);
                 }}
                 
-                console.log('NiceTable [' + '{self.uid}' + '] container found, loading module...');
-                import('{js_url}')
-                    .then((module) => {{
-                        console.log('NiceTable [' + '{self.uid}' + '] JS module loaded, mounting...');
-                        const mount = module.mountTable || window.mountNiceTable;
-                        if (mount) {{
-                            mount(root, {{
-                                tableId: '{self.uid}',
-                                defaultVersion: '{ "vxe" if self.use_vxe else "element" }',
-                                apiUrl: ''
-                            }});
-                        }} else {{
-                            console.error('NiceTable [' + '{self.uid}' + '] mountTable function not found in module');
-                        }}
-                    }})
-                    .catch(err => {{
-                        console.error('NiceTable [' + '{self.uid}' + '] failed to load JS module:', err);
-                        // 模块加载失败可能是临时网络问题，5秒后重试
-                        setTimeout(mountApp_{self.uid}, 5000);
+                import('{js_url}').then(m => {{
+                    const mount = m.mountTable || window.mountNiceTable;
+                    if (mount) mount(root, {{
+                        tableId: '{self.uid}',
+                        defaultVersion: '{ "vxe" if self.use_vxe else "element" }',
+                        apiUrl: ''
                     }});
+                }}).catch(e => {{
+                    console.error('NiceTable load failed:', e);
+                    setTimeout(mountApp_{self.uid}, 5000);
+                }});
             }};
-
             mountApp_{self.uid}();
             </script>
             """

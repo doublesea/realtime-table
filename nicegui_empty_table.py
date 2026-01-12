@@ -30,6 +30,10 @@ def create_empty_dataframe():
     for col in columns_config:
         if col.prop in ['user_id', 'merchant']:
             col.filterable = False
+        
+        # 将 item_count 设置为多选筛选，测试数值类型的列表筛选
+        if col.prop == 'item_count':
+            col.filterType = 'multi-select'
             
     return df.iloc[0:0], columns_config
 

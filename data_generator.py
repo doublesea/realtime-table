@@ -34,7 +34,8 @@ def generate_single_record(start_id: Optional[int] = None) -> dict:
     order_status = random.choice(order_statuses)
     payment_method = random.choice(payment_methods)
     order_amount = round(random.uniform(10, 10000), 2)
-    item_count = random.randint(1, 100)
+    # item_count = random.randint(1, 100)
+    item_count = random.choice([10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
     shipping_cost = round(random.uniform(0, 50), 1)
     city = random.choice(cities)
     merchant = random.choice(merchants)
@@ -105,7 +106,8 @@ def generate_batch_records(start_id: int, count: int) -> List[Dict]:
     
     # 生成数值字段
     batch_amounts = np.round(np.random.uniform(10, 10000, count), 2)
-    batch_item_counts = np.random.randint(1, 101, count)
+    # batch_item_counts = np.random.randint(1, 101, count)
+    batch_item_counts = np.random.choice([10, 20, 30, 40, 50, 60, 70, 80, 90, 100], count)
     batch_shipping_costs = np.round(np.random.uniform(0, 50, count), 1)
     batch_user_ids = np.random.randint(1000, 100000, count)
     batch_discounts = np.round(np.random.uniform(0, 0.5, count), 2)
