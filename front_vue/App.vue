@@ -1,12 +1,26 @@
 <template>
   <div class="app">
-    <DataTable v-if="currentVersion === 'element'" ref="dataTableRef" api-url="" :table-id="tableId" />
-    <VxeDataTable v-if="currentVersion === 'vxe'" ref="dataTableRef" api-url="" :table-id="tableId" />
+    <DataTable 
+      v-if="currentVersion === 'element'" 
+      ref="dataTableRef" 
+      api-url="" 
+      :table-id="tableId"
+      :initial-sort="globalSort"
+      @sort-change="updateGlobalSort"
+    />
+    <VxeDataTable 
+      v-if="currentVersion === 'vxe'" 
+      ref="dataTableRef" 
+      api-url="" 
+      :table-id="tableId"
+      :initial-sort="globalSort"
+      @sort-change="updateGlobalSort"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, watch, computed } from 'vue'
+import { ref, reactive, onMounted, nextTick, watch, computed } from 'vue'
 import DataTable from './components/DataTable.vue'
 import VxeDataTable from './components/VxeDataTable.vue'
 
@@ -18,6 +32,18 @@ const props = defineProps<{
 
 const currentVersion = ref(props.defaultVersion || 'element')
 const dataTableRef = ref()
+
+// 全局共享的排序状态
+const globalSort = reactive({
+  prop: 'id',
+  order: 'ascending' as 'ascending' | 'descending' | null | undefined
+})
+
+const updateGlobalSort = (newSort: { prop: string | undefined, order: any }) => {
+  globalSort.prop = newSort.prop || 'id'
+  globalSort.order = newSort.order || 'ascending'
+  console.log('Global sort updated:', globalSort)
+}
 
 const tableId = computed(() => {
   if (props.tableId) return props.tableId

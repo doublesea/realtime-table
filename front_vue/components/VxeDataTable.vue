@@ -56,11 +56,11 @@
         show-header-overflow="ellipsis"
         :row-config="{ isHover: true, isCurrent: true, keyField: 'id' }"
         :column-config="{ resizable: true }"
-        :custom-config="{ storage: true, immediate: true }"
+        :custom-config="{ storage: false, immediate: true }"
         :toolbar-config="{ custom: true }"
         :scroll-y="{ enabled: true, gt: 100 }"
         :filter-config="{ remote: true }"
-        :sort-config="{ remote: true, showIcon: true, defaultSort: { field: 'id', order: 'asc' } }"
+        :sort-config="{ remote: true, showIcon: true, defaultSort: { field: sortInfo.prop || 'id', order: sortInfo.order === 'descending' ? 'desc' : 'asc' } }"
         @sort-change="handleVxeSortChange"
         @filter-change="handleVxeFilterChange"
         @cell-click="handleVxeCellClick"
@@ -280,7 +280,10 @@ import axios from 'axios'
 const props = defineProps<{
   apiUrl: string
   tableId?: string
+  initialSort?: { prop: string | undefined, order: any }
 }>()
+
+const emit = defineEmits(['sort-change'])
 
 // 获取 tableId
 const getTableId = (): string | null => {
@@ -407,8 +410,8 @@ const pagination = reactive({
 })
 
 const sortInfo = reactive({
-  prop: 'id' as string | undefined,
-  order: 'ascending' as 'ascending' | 'descending' | null | undefined
+  prop: props.initialSort?.prop || 'id' as string | undefined,
+  order: props.initialSort?.order || 'ascending' as 'ascending' | 'descending' | null | undefined
 })
 
 const loadColumnsConfig = async () => {
@@ -637,6 +640,7 @@ const handleVxeSortChange: VxeTableEvents.SortChange<TableData> = ({ property, o
     sortInfo.prop = 'id'
     sortInfo.order = 'ascending'
   }
+  emit('sort-change', { prop: sortInfo.prop, order: sortInfo.order })
   loadData(selectedRowId.value !== null)
 }
 

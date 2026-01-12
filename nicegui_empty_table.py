@@ -26,9 +26,9 @@ def create_empty_dataframe():
     df = df[['id'] + [c for c in df.columns if c != 'id']]
     columns_config = generate_columns_config_from_dataframe(df)
     
-    # 将 user_id 列设置为不支持筛选
+    # 将 user_id 和 merchant 列设置为不支持筛选
     for col in columns_config:
-        if col.prop == 'user_id':
+        if col.prop in ['user_id', 'merchant']:
             col.filterable = False
             
     return df.iloc[0:0], columns_config

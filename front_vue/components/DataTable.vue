@@ -44,7 +44,7 @@
         height="100%"
         style="width: 100%; table-layout: fixed"
         class="table-with-transition"
-        :default-sort="{ prop: 'id', order: 'ascending' }"
+        :default-sort="{ prop: sortInfo.prop || 'id', order: sortInfo.order || 'ascending' }"
       @sort-change="handleSortChange"
       @row-click="handleRowClick"
       @expand-change="handleExpandChange"
@@ -433,7 +433,10 @@ import axios from 'axios'
 const props = defineProps<{
   apiUrl: string
   tableId?: string
+  initialSort?: { prop: string | undefined, order: any }
 }>()
+
+const emit = defineEmits(['sort-change'])
 
 // 获取 tableId
 const getTableId = (): string | null => {
@@ -651,12 +654,12 @@ onUnmounted(() => {
 const initColumnVisible = (columns: ColumnConfig[]) => {
   columns.forEach(col => {
     // id列默认隐藏，其他列默认显示
-    columnVisible[col.prop] = col.prop !== 'id'
+    if (columnVisible[col.prop] === undefined) {
+      columnVisible[col.prop] = col.prop !== 'id'
+    }
   })
-  // 初始化列顺序
-  if (columnOrder.value.length === 0) {
-    columnOrder.value = columns.map(col => col.prop)
-  }
+  // 初始化列顺序：总是同步后端返回的顺序
+  columnOrder.value = columns.map(col => col.prop)
 }
 
 // 临时输入状态（用户正在输入的值，不会立即触发刷新）
@@ -674,8 +677,8 @@ const pagination = reactive({
 
 // 排序状态（默认按ID升序，最新的在后）
 const sortInfo = reactive({
-  prop: 'id' as string | undefined,
-  order: 'ascending' as 'ascending' | 'descending' | null | undefined
+  prop: props.initialSort?.prop || 'id' as string | undefined,
+  order: props.initialSort?.order || 'ascending' as 'ascending' | 'descending' | null | undefined
 })
 
 // 默认列配置（当后端加载失败时使用，现在为空数组，因为字段应该是动态的）
@@ -1321,6 +1324,8 @@ const handleSortChange = ({ column, prop, order }: any) => {
     sortInfo.prop = 'id'
     sortInfo.order = 'ascending'
   }
+  
+  emit('sort-change', { prop: sortInfo.prop, order: sortInfo.order })
   
   // 重置到第一页
   pagination.page = 1
