@@ -24,20 +24,38 @@
 ### 4. 增强的交互体验
 - **紧凑型 UI 设计**：全站采用 `mini` / `small` 尺寸，优化行高与间距，提升信息密度。
 - **分页增强**：采用 `1+3+1` 精简分页布局，支持指针悬停的页码快速跳转。
+- **即时筛选 (Instant Filtering)**：
+  - **列表类筛选 (Select/Multi-select)**：选择选项后数据立即刷新，无需点击确认按钮。
+  - **多选持久化**：多选时面板保持开启，方便连续勾选；单选时自动确认并收起。
 - **列设置 (Native VXE Customization)**：
-  - VXETable 方案通过原生面板支持 **拖拽排序** 和 **显显隐切换**。
-  - 设置自动持久化至浏览器本地存储。
+  - VXETable 方案通过原生面板支持 **拖拽排序** 和 **显隐切换**。
+  - 设置自动同步，禁用本地存储以确保后端配置为准（可选）。
 - **行选中保持**：
   - 筛选/排序/版本切换后，系统自动定位并 **滚动到选中行**。
   - 采用“立即+延迟”的双重滚动算法，确保在虚拟滚动场景下精确定位。
 - **多功能筛选**：
   - 支持文本、数字、多选、日期等多种类型。
+  - **数值类多选**：支持将数值列（如状态码、档位）配置为列表多选模式。
   - **16进制支持**：数字列支持直接输入 `0x123` 进行筛选。
   - **详情展示优化**：展开行详情时自动过滤 `_X_` 开头的内部保留键。
 
+### 5. 健壮性与兼容性
+- **渐进式加载**：引入骨架屏（Skeleton UI）和 `IntersectionObserver` 延迟渲染，解决隐藏 Tab 页中组件初始化失败的问题。
+- **自动重试机制**：前端对 JS 模块加载及 Vue 实例注册进行自适应轮询（最长 60s），确保在复杂网络环境下稳定挂载。
+- **缓存消除**：资源引用自动附加时间戳（`?v={ts}`），确保前端代码更新后立即生效。
+- **MIME 类型修正**：后端自动注册 `.woff2` 等字体文件的 MIME 类型，消除浏览器控制台告警。
+- **全局状态同步**：引入 `globalSort` 响应式状态，确保在切换表格引擎时排序状态无损迁移。
+
 ## 系统架构
 
-### 1. 类图 (Class Diagram)
+### 1. 典型 UI 布局
+系统提供了完整的 Quasar 后台管理界面布局：
+- **Header**: 包含系统标题、Tab 切换（表格视图/统计分析）、个人信息。
+- **Sidebar**: 提供菜单导航、表格引擎快速切换、模拟数据生成控制。
+- **Main**: 采用 Flexbox 自动撑开，确保表格在不同屏幕尺寸下均能占据 100% 剩余高度。
+- **Footer**: 展示系统状态、版本号及版权信息。
+
+### 2. 类图 (Class Diagram)
 
 ```mermaid
 classDiagram
@@ -64,18 +82,21 @@ classDiagram
     %% 前端组件
     class AppProxy {
         -currentVersion: string
+        -globalSort: reactive
         -dataTableRef: Component
         +refreshData()
         +refreshColumns()
         +switchVersion(version)
+        +updateGlobalSort(sort)
     }
 
     class VxeDataTable {
         -tableData: TableData[]
         -selectedRowId: number
+        -isInitialized: boolean
         +loadData(keepSelected, silent)
         +handleVxeSortChange()
-        +handleFilterChange()
+        +handleFilterSelectChange()
     }
 
     class DataApi {
@@ -244,6 +265,7 @@ ui.run(port=8081)
 ```
 
 ## 注意事项
+- **高度继承**: 系统通过强力注入全局 CSS 确保了从 `html` 到 `NiceTable` 的全链路高度继承。若嵌入其他布局，需确保容器具备明确的高度。
 - **VXETable 免费版**: 本项目使用 VXETable 免费版本，已能满足大部分高性能需求。
 - **虚拟滚动限制**: 在 VXETable 下，所有行的高度必须一致以确保滚动条计算准确。
 
