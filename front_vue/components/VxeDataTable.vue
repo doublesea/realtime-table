@@ -1,7 +1,7 @@
 <template>
-  <el-card class="table-card" :body-style="{ padding: '16px', display: 'flex', flexDirection: 'column', height: '100%' }">
+  <div ref="cardRef" class="table-wrapper">
     <!-- 工具栏 -->
-    <div class="toolbar" style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+    <div class="toolbar" style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; padding: 16px 16px 0 16px;">
       <!-- Left: Pagination -->
       <div style="display: flex; gap: 12px; align-items: center;">
         <el-pagination
@@ -34,8 +34,15 @@
     <!-- 数据表格容器 -->
     <div class="table-container">
       <!-- 轻量级加载指示器（顶部进度条） -->
-      <div v-if="silentLoading" class="silent-loading-bar"></div>
+      <div v-if="silentLoading || !isInitialized" class="silent-loading-bar"></div>
+      
+      <!-- 骨架屏：仅在初始化时显示 -->
+      <div v-if="!isInitialized" class="skeleton-placeholder">
+        <div class="skeleton-row" v-for="i in 8" :key="i"></div>
+      </div>
+
       <vxe-table
+        v-if="isInitialized"
         ref="tableRef"
         :id="vxeTableId"
         :key="vxeTableKey"
@@ -51,9 +58,9 @@
         :column-config="{ resizable: true }"
         :custom-config="{ storage: true, immediate: true }"
         :toolbar-config="{ custom: true }"
-        :scroll-y="{ enabled: true, gt: 0 }"
+        :scroll-y="{ enabled: true, gt: 100 }"
         :filter-config="{ remote: true }"
-        :sort-config="{ remote: true, showIcon: true }"
+        :sort-config="{ remote: true, showIcon: true, defaultSort: { field: 'id', order: 'asc' } }"
         @sort-change="handleVxeSortChange"
         @filter-change="handleVxeFilterChange"
         @cell-click="handleVxeCellClick"
@@ -108,12 +115,12 @@
             :fixed="(col.fixed as any)"
             :sortable="col.sortable"
             :visible="col.prop !== 'id'"
-            :filters="col.filterable && col.filterType !== 'none' ? getInitialFilterData(col) : []"
-            :filter-render="{}"
+            :filters="col.filterable && col.filterType !== 'none' ? getInitialFilterData(col) : undefined"
+            :filter-render="col.filterable && col.filterType !== 'none' ? {} : undefined"
           >
             <!-- 使用 vxe-table 原生筛选插槽 -->
-            <template #filter="{ column, $panel }">
-              <div v-if="ensureFilterData(column.filters[0], col)" class="vxe-filter-custom-panel">
+            <template #filter="{ column, $panel }" v-if="col.filterable && col.filterType !== 'none'">
+              <div v-if="column.filters && column.filters[0] && ensureFilterData(column.filters[0], col)" class="vxe-filter-custom-panel">
                 <div class="filter-header">{{ col.label }}筛选</div>
                 
                 <div class="filter-body">
@@ -258,7 +265,7 @@
         <el-button type="primary" @click="loadStatistics" :loading="statisticsLoading">刷新</el-button>
       </template>
     </el-dialog>
-  </el-card>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -353,9 +360,12 @@ const createApi = (baseUrl: string) => {
 const dataApi = createApi(props.apiUrl)
 
 // 响应式数据
+const cardRef = ref()
 const tableData = ref<TableData[]>([])
 const loading = ref(false)
 const silentLoading = ref(false)
+const isVisible = ref(false)
+const isInitialized = ref(false) // 核心：延迟渲染表格，防止初始化卡死
 const selectedRowId = ref<number | null>(null)
 const tableRef = ref<VxeTableInstance<TableData>>()
 const filterOptions = reactive<Record<string, string[]>>({})
@@ -407,7 +417,8 @@ const loadColumnsConfig = async () => {
     
     // 1. 预先初始化所有列的筛选数据数组（引用级别固定）
     config.columns.forEach((col: any) => {
-      if (!initialFilterDataMap[col.prop]) {
+      // 只有可筛选列才初始化筛选数据
+      if (col.filterable && col.filterType !== 'none' && !initialFilterDataMap[col.prop]) {
         let data: any = ''
         if (col.filterType === 'number') {
           data = { filters: [{ operator: '=', value: '' }], logic: 'AND' }
@@ -726,6 +737,10 @@ const handleOpenColumnSettings = () => {
 // 核心修复：确保重置后数据结构依然存在
 const ensureFilterData = (option: any, col: ColumnConfig) => {
   if (!option) return false
+  
+  // 如果该列本就不允许筛选，直接返回 false，防止渲染面板
+  if (!col.filterable || col.filterType === 'none') return false
+
   if (option.data === null || option.data === undefined || option.data === '') {
     if (col.filterType === 'number') {
       option.data = { filters: [{ operator: '=', value: '' }], logic: 'AND' }
@@ -766,17 +781,21 @@ const exposedMethods = {
 defineExpose(exposedMethods)
 
 // 核心修复：处理隐藏 Tab 切换导致的卡死或布局错乱
-const isVisible = ref(true)
 let visibilityObserver: IntersectionObserver | null = null
 
+let lastResizeTime = 0;
 const handleResize = () => {
+  const now = Date.now();
+  if (now - lastResizeTime < 100) return; // 节流，100ms 内只处理一次
+  lastResizeTime = now;
+  
   if (isVisible.value && tableRef.value) {
     tableRef.value.recalculate()
   }
 }
 
 const initVisibilityObserver = () => {
-  const root = document.getElementById(vxeTableId.value)?.parentElement
+  const root = cardRef.value
   if (!root || !window.IntersectionObserver) return
 
   visibilityObserver = new IntersectionObserver((entries) => {
@@ -784,8 +803,25 @@ const initVisibilityObserver = () => {
     const wasVisible = isVisible.value
     isVisible.value = entry.isIntersecting
     
-    // 当从隐藏切换到显示时，强制重绘表格
-    if (isVisible.value && !wasVisible) {
+    // 核心优化：第一次可见时初始化，停止观察并强制下一帧渲染
+    if (isVisible.value && !isInitialized.value) {
+      console.log(`NiceTable [${props.tableId || 'unknown'}] initializing...`)
+      
+      // 分阶段初始化：第一步释放主线程，第二步渲染组件
+      setTimeout(() => {
+        requestAnimationFrame(() => {
+          isInitialized.value = true
+          nextTick(async () => {
+            await loadData()
+            // 延迟一点点再次重算，确保容器高度已经稳定
+            setTimeout(() => {
+              if (tableRef.value) tableRef.value.recalculate()
+            }, 50)
+          })
+        })
+      }, 100)
+    } else if (isVisible.value && !wasVisible) {
+      // 当从隐藏切换到显示时（非第一次初始化），强制重绘表格以修复布局
       nextTick(() => {
         if (tableRef.value) {
           tableRef.value.recalculate()
@@ -793,7 +829,7 @@ const initVisibilityObserver = () => {
         }
       })
     }
-  }, { threshold: 0.01 })
+  }, { threshold: 0.1 })
 
   visibilityObserver.observe(root)
   window.addEventListener('resize', handleResize)
@@ -803,18 +839,15 @@ onMounted(async () => {
   // 初始化 ID
   const tid = getTableId()
   vxeTableId.value = tid ? `vxe_table_${tid}` : 'vxe_data_table'
+  console.log(`VxeDataTable [${tid}] mounted, waiting for visibility...`)
   
+  // 第一步：先加载配置（配置很轻量，可以先加载）
   await loadColumnsConfig()
-  await loadData()
   
-  // 初始化可见性观察者
+  // 第二步：初始化可见性观察，由观察者决定何时初始化表格渲染
   nextTick(() => {
     initVisibilityObserver()
   })
-  
-  // 等待一下确保 DOM 完全渲染
-  await nextTick()
-  await nextTick()
 })
 
 onUnmounted(() => {
@@ -827,25 +860,20 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.table-card {
+.table-wrapper {
   margin: 0;
   height: 100%;
   width: 100%;
   display: flex;
   flex-direction: column;
-}
-
-:deep(.el-card__body) {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
+  background-color: #fff;
+  border-radius: 4px;
   overflow: hidden;
 }
 
 .table-container {
   flex: 1;
-  min-height: 0;
+  min-height: 0; /* 必须为 0，允许 flex 自由伸缩 */
   overflow: hidden;
   display: flex;
   flex-direction: column;

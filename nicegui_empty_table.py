@@ -25,6 +25,12 @@ def create_empty_dataframe():
         df['id'] = 1
     df = df[['id'] + [c for c in df.columns if c != 'id']]
     columns_config = generate_columns_config_from_dataframe(df)
+    
+    # 将 user_id 列设置为不支持筛选
+    for col in columns_config:
+        if col.prop == 'user_id':
+            col.filterable = False
+            
     return df.iloc[0:0], columns_config
 
 
@@ -32,6 +38,26 @@ def create_empty_dataframe():
 def main_page():
     ui.page_title('NiceTable 大数据管理系统')
     ui.query('body').classes('overflow-hidden')
+    
+    # 核心修复：强力打通高度继承链条
+    ui.add_head_html('''
+        <style>
+            /* 1. 基础容器：从页面到底部全部强制 100% */
+            html, body, .q-layout, .q-page-container, .q-page { height: 100% !important; min-height: unset !important; }
+            
+            /* 2. NiceGUI 布局：确保 flex 容器能够撑开 */
+            .q-page { display: flex !important; flex-direction: column !important; overflow: hidden !important; }
+            
+            /* 3. Tab 组件：这是最容易断裂的一环 */
+            .q-tab-panels { flex-grow: 1 !important; display: flex !important; flex-direction: column !important; height: 100% !important; background: transparent !important; }
+            .q-tab-panel { flex-grow: 1 !important; display: flex !important; flex-direction: column !important; padding: 0 !important; height: 100% !important; overflow: hidden !important; overflow: hidden !important; }
+            
+            /* 4. Card 与表格根容器 */
+            .q-card { display: flex !important; flex-direction: column !important; flex-grow: 1 !important; }
+            .nice-table-container { display: flex !important; flex-direction: column !important; flex-grow: 1 !important; height: 100% !important; min-height: 0 !important; }
+            .nice-table-root { display: flex !important; flex-direction: column !important; flex-grow: 1 !important; height: 100% !important; min-height: 0 !important; }
+        </style>
+    ''')
 
     # 1. 初始化数据状态
     empty_df, columns_config = create_empty_dataframe()
